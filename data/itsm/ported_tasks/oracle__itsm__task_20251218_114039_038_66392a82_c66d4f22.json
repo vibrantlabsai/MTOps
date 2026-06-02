@@ -1,0 +1,108 @@
+{
+  "id": "itsm_vpn_problem_change_track_001",
+  "user_scenario": {
+    "persona": {
+      "name": "Marcus Thompson",
+      "personality": "An organized IT administrator who relays a problem manager's requirements precisely and expects records to be tracked formally and traceably according to ITIL practice."
+    },
+    "task_description": "A remote employee has been experiencing a recurring incident of VPN connection failures when connecting from home offices; the incident was originally assigned to Kenji Tanaka. The Infrastructure Problem Manager, Raj Patel, wants this recurring VPN issue to be formally tracked as a high impact network Problem. The problem should be created with status new, urgency medium, and a short description summarising the recurring VPN connection failures for remote users. He also wants a high impact new Change raised; the change should be created with short description \"VPN gateway firmware upgrade and configuration hardening\", priority high, and risk medium. This change must be mapped to the new Problem. As the fix is in progress the Problem should be updated with a workaround that notes a temporary mitigation for users."
+  },
+  "environment": {
+    "seed": "seed_main",
+    "acting_user_id": "USER_001"
+  },
+  "selected_tools": [
+    "list_users",
+    "create_change",
+    "update_problem",
+    "get_user",
+    "list_incidents",
+    "map_change_request",
+    "create_problem"
+  ],
+  "initial_state_delta": null,
+  "evaluation_criteria": {
+    "actions": [
+      {
+        "name": "create_problem",
+        "arguments": {
+          "problem_statement": "Remote users connecting from home offices repeatedly experience VPN connection failures; recurring pattern originally tracked under incident INC_011 (assigned to Kenji Tanaka). Requires formal problem tracking and a permanent fix.",
+          "short_description": "Recurring VPN connection failures for remote users from home offices",
+          "status": "new",
+          "impact": "high",
+          "urgency": "medium",
+          "priority": "high",
+          "category": "network",
+          "original_task": "INC_011"
+        }
+      },
+      {
+        "name": "create_change",
+        "arguments": {
+          "short_description": "VPN gateway firmware upgrade and configuration hardening",
+          "status": "new",
+          "impact": "high",
+          "risk": "medium",
+          "priority": "high",
+          "category": "network"
+        }
+      },
+      {
+        "name": "map_change_request",
+        "arguments": {
+          "change_id": "CHG_004",
+          "problem_id": "PRB_003"
+        }
+      },
+      {
+        "name": "update_problem",
+        "arguments": {
+          "problem_id": "PRB_003",
+          "status": "fix_in_progress",
+          "workaround": "Temporary mitigation: advise affected remote users to reconnect using the backup VPN gateway profile and switch from UDP to TCP transport until the gateway firmware upgrade is completed."
+        }
+      }
+    ],
+    "nl_assertions": [
+      "A high impact, medium urgency network problem is created for the recurring VPN connection failures affecting remote users, linked to the originating incident INC_011 with priority high.",
+      "A new high impact, high priority, medium risk change request titled 'VPN gateway firmware upgrade and configuration hardening' is created.",
+      "The new change request is mapped to the newly created VPN problem for traceability.",
+      "The problem is updated with a workaround describing a temporary mitigation for users and its status is moved to fix_in_progress."
+    ],
+    "verifiers": [
+      {
+        "verifier_type": "database_state",
+        "name": "VPN Problem created and updated correctly",
+        "description": "Verify that VPN Problem created and updated correctly",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) AS cnt FROM problem WHERE status = 'fix_in_progress' AND impact = 'high' AND urgency = 'medium' AND category = 'network' AND original_task = 'INC_011' AND priority = 'high';",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "Change created for VPN gateway upgrade",
+        "description": "Verify that Change created for VPN gateway is upgrade",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) AS cnt FROM change WHERE short_description = 'VPN gateway firmware upgrade and configuration hardening' AND status = 'new' AND impact = 'high' AND risk = 'medium' AND priority = 'high';",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "Change-Problem mapping exists",
+        "description": "Verify that Change-Problem have a mapping",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) AS cnt FROM change_request_mapping m JOIN change c ON m.change_id = c.change_id JOIN problem p ON m.problem_id = p.problem_id WHERE c.short_description = 'VPN gateway firmware upgrade and configuration hardening';",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      }
+    ]
+  }
+}

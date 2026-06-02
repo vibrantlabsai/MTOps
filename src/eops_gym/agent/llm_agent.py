@@ -38,7 +38,7 @@ class LLMAgent:
         self.system = SystemMessage(content=AGENT_SYSTEM.format(policy=policy))
         self.tool_schemas = tool_schemas
         self.llm = llm
-        self.llm_args = llm_args if llm_args is not None else {"temperature": 0.0}
+        self.llm_args = llm_args if llm_args is not None else {"temperature": 0.0, "max_tokens": 4096}
 
     def get_init_state(self) -> AgentState:
         return AgentState(messages=[self.system])

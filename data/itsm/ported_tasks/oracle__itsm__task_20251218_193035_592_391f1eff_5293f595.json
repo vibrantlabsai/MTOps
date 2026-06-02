@@ -1,0 +1,104 @@
+{
+  "id": "itsm_incident_notify_caller_urgency_001",
+  "user_scenario": {
+    "persona": {
+      "name": "Randy Martinez",
+      "personality": "A pragmatic L2 field support manager who is concise and process-driven, keeping callers informed and keeping incident records accurate."
+    },
+    "task_description": "This incident INC-000068 has been in the L2 Field Support team queue for some time now awaiting action from the caller. The laptop reported as not powering on is currently on hold until the caller brings in the device for further hardware checks, after which the required parts can be identified and arranged. Notify the caller through written communication for the same, and update the urgency to high."
+  },
+  "environment": {
+    "seed": "seed_alt",
+    "acting_user_id": "USER_037"
+  },
+  "selected_tools": [
+    "send_notification",
+    "get_user",
+    "update_incident",
+    "find_incident_by_number"
+  ],
+  "initial_state_delta": null,
+  "evaluation_criteria": {
+    "actions": [
+      {
+        "name": "find_incident_by_number",
+        "arguments": {
+          "number": "INC-000068"
+        }
+      },
+      {
+        "name": "get_user",
+        "arguments": {
+          "user_id": "USER_055"
+        }
+      },
+      {
+        "name": "update_incident",
+        "arguments": {
+          "incident_id": "INC_068",
+          "urgency": "high",
+          "priority": "critical"
+        }
+      },
+      {
+        "name": "send_notification",
+        "arguments": {
+          "incident_id": "INC_068",
+          "email": "bethany.barnes43@russelljohnsonandclark.com",
+          "type": "reminder"
+        }
+      }
+    ],
+    "nl_assertions": [
+      "The urgency of incident INC-000068 is raised to high (and its priority becomes critical given the high impact).",
+      "A written notification of type reminder is queued to the caller's email asking them to bring in the laptop for further hardware checks.",
+      "The notification is associated with incident INC-000068 and is sent to the affected caller, Bethany Barnes."
+    ],
+    "verifiers": [
+      {
+        "verifier_type": "database_state",
+        "name": "Modify incident",
+        "description": "validate incident update",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM incident WHERE incident_id = \"INC_068\" AND urgency = \"high\" AND priority = \"critical\";",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "Notify caller",
+        "description": "validate notification sent",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM notification WHERE notification_id = \"NOTIF_031\" AND incident_id = \"INC_068\" AND email = \"bethany.barnes43@russelljohnsonandclark.com\" AND type = \"reminder\" AND status = \"queued\";",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "Modify incident",
+        "description": "validate incident update",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM incident WHERE incident_id = \"INC_068\" AND urgency = \"high\" AND priority = \"critical\";",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "Notify caller",
+        "description": "validate notification sent",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM notification WHERE notification_id = \"NOTIF_031\" AND incident_id = \"INC_068\" AND email = \"bethany.barnes43@russelljohnsonandclark.com\" AND type = \"reminder\" AND status = \"queued\";",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      }
+    ]
+  }
+}

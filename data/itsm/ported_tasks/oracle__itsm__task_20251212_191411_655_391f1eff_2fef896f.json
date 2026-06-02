@@ -1,0 +1,196 @@
+{
+  "id": "itsm_incident_progress_sla_notify_001",
+  "user_scenario": {
+    "persona": {
+      "name": "Priya Sharma",
+      "personality": "A diligent, results-oriented IT service manager who follows ITIL process carefully, keeps affected users informed, and pushes pending incidents toward quick resolution."
+    },
+    "task_description": "After identifying that incident INC0000011 is still pending in our workspace which recently was again brought to our notice by Carlos Rodriguez as it's highly impacting his Wi-Fi networks, indicating a high business impact that should be updated accordingly. Progress the work on this incident so as to get it quickly resolved, check if there are any SLAs already linked, if not provide a valid and appropriate SLA and align it to the incident. Also notify Carlos regarding the same."
+  },
+  "environment": {
+    "seed": "seed_main",
+    "acting_user_id": "USER_002"
+  },
+  "selected_tools": [
+    "link_new_incident_sla",
+    "get_user_using_name",
+    "update_incident",
+    "get_user",
+    "find_incident_slas",
+    "find_incident_by_number",
+    "find_sla_definitions",
+    "send_notification"
+  ],
+  "initial_state_delta": null,
+  "evaluation_criteria": {
+    "actions": [
+      {
+        "name": "update_incident",
+        "arguments": {
+          "incident_id": "INC_016",
+          "status": "in_progress",
+          "impact": "high",
+          "priority": "high"
+        }
+      },
+      {
+        "name": "link_new_incident_sla",
+        "arguments": {
+          "incident_id": "INC_016",
+          "sla_def_id": "SLA_002",
+          "stage": "in_progress",
+          "start_time": "2026-06-02T00:00:00"
+        }
+      },
+      {
+        "name": "send_notification",
+        "arguments": {
+          "incident_id": "INC_016",
+          "email": "carlos.rodriguez@techcorp.com",
+          "type": "update",
+          "subject": "Update on your incident INC0000011 (Wi-Fi connection drops)",
+          "message": "Hi Carlos, your incident INC0000011 has been escalated to high impact and is now in progress. An appropriate resolution SLA has been aligned and we are actively working toward a quick resolution."
+        }
+      }
+    ],
+    "nl_assertions": [
+      "Incident INC0000011 (INC_016) is progressed to in_progress with its business impact raised to high and the resulting priority set to high.",
+      "An appropriate resolution SLA is linked to the incident since none existed before, using the high-priority resolution SLA definition with an in_progress stage.",
+      "Carlos Rodriguez is notified about the update to his incident via an update-type notification to his email."
+    ],
+    "verifiers": [
+      {
+        "verifier_type": "database_state",
+        "name": "Incident update",
+        "description": "validate incident update",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM incident WHERE incident_id = \"INC_016\" AND status = \"in_progress\" AND impact = \"high\" AND priority = \"high\";",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "SLA link",
+        "description": "validate sla linked",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM incident_sla WHERE incident_sla_id = \"TSLA_011\" AND incident_id = \"INC_016\" AND sla_def_id = \"SLA_002\" AND stage = \"in_progress\";",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "Notification sent",
+        "description": "validate notification sent",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM notification WHERE notification_id = \"NOTIF_008\" AND incident_id = \"INC_016\" AND email = \"carlos.rodriguez@techcorp.com\" AND type = \"update\";",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "Incident update",
+        "description": "validate incident update",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM incident WHERE incident_id = \"INC_016\" AND status = \"in_progress\" AND impact = \"high\" AND priority = \"high\";",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "SLA link",
+        "description": "validate sla linked",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM incident_sla WHERE incident_sla_id = \"TSLA_011\" AND incident_id = \"INC_016\" AND sla_def_id = \"SLA_002\" AND stage = \"in_progress\";",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "Notification sent",
+        "description": "validate notification sent",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM notification WHERE notification_id = \"NOTIF_008\" AND incident_id = \"INC_016\" AND email = \"carlos.rodriguez@techcorp.com\" AND type = \"update\";",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "Incident update",
+        "description": "validate incident update",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM incident WHERE incident_id = \"INC_016\" AND status = \"in_progress\" AND impact = \"high\" AND priority = \"high\";",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "SLA link",
+        "description": "validate sla linked",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM incident_sla WHERE incident_sla_id = \"TSLA_011\" AND incident_id = \"INC_016\" AND sla_def_id = \"SLA_002\" AND stage = \"in_progress\";",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "Notification sent",
+        "description": "validate notification sent",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM notification WHERE notification_id = \"NOTIF_008\" AND incident_id = \"INC_016\" AND email = \"carlos.rodriguez@techcorp.com\" AND type = \"update\";",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "Incident update",
+        "description": "validate incident update",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM incident WHERE incident_id = \"INC_016\" AND status = \"in_progress\" AND impact = \"high\" AND priority = \"high\";",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "SLA link",
+        "description": "validate sla linked",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM incident_sla WHERE incident_sla_id = \"TSLA_011\" AND incident_id = \"INC_016\" AND sla_def_id = \"SLA_002\" AND stage = \"in_progress\";",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "Notification sent",
+        "description": "validate notification sent",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM notification WHERE notification_id = \"NOTIF_008\" AND incident_id = \"INC_016\" AND email = \"carlos.rodriguez@techcorp.com\" AND type = \"update\";",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      }
+    ]
+  }
+}

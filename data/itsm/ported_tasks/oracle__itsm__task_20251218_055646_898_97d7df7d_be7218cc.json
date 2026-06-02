@@ -1,0 +1,77 @@
+{
+  "id": "itsm_resolved_incident_notify_reporter_resolver_001",
+  "user_scenario": {
+    "persona": {
+      "name": "Marcus Thompson",
+      "personality": "An organized, courteous ITSM administrator who follows up diligently and communicates clearly and warmly with both the affected users and the agents who do the work."
+    },
+    "task_description": "Please work with the most recently resolved incident handled by a group named Level 1 Support Team and send reports to the main participants. For the user who reported the incident, use the subject Incident Resolved - Service and Device Ready for Use, and a message clearly stating that their incident has been fully resolved, naming the associated service and item, and confirming that everything is now ready for proper use so they can continue their normal tasks. For the user who resolved the incident, use the subject Thank You for Resolving Recent Service Desk Incident, thanking them for their work, briefly restating what the incident summary described, and referencing the impact, urgency, and priority that were recorded, and noting that now that this case is closed they can expect to be assigned another incident within the next few hours."
+  },
+  "environment": {
+    "seed": "seed_main",
+    "acting_user_id": "USER_001"
+  },
+  "selected_tools": [
+    "send_notification",
+    "find_configuration_items",
+    "get_incidents_assigned_to",
+    "find_services",
+    "get_user",
+    "list_user_groups"
+  ],
+  "initial_state_delta": null,
+  "evaluation_criteria": {
+    "actions": [
+      {
+        "name": "send_notification",
+        "arguments": {
+          "incident_id": "INC_017",
+          "email": "aisha.williams@techcorp.com",
+          "type": "report",
+          "subject": "Incident Resolved - Service and Device Ready for Use",
+          "message": "Hello Aisha, we are pleased to inform you that your incident has been fully resolved. The associated Email Service and the Carlos Laptop item are now fully operational and ready for proper use. Everything is now ready so that you can continue your normal tasks without any further interruption."
+        }
+      },
+      {
+        "name": "send_notification",
+        "arguments": {
+          "incident_id": "INC_017",
+          "email": "carlos.rodriguez@techcorp.com",
+          "type": "report",
+          "subject": "Thank You for Resolving Recent Service Desk Incident",
+          "message": "Hello Carlos, thank you for resolving this recent service desk incident. The incident summary described that the Keyboard keys not responding. The recorded impact was low, the urgency was low, and the resulting priority was low. Now that this case is closed, you can expect to be assigned another incident within the next few hours."
+        }
+      }
+    ],
+    "nl_assertions": [
+      "Two report notifications are sent for the most recently resolved Level 1 Support Team incident (INC_017): one to the reporter (Aisha Williams) and one to the resolver (Carlos Rodriguez).",
+      "The reporter's notification uses the subject 'Incident Resolved - Service and Device Ready for Use' and states the incident is fully resolved, names the Email Service and the Carlos Laptop item, and confirms everything is ready so they can continue their normal tasks.",
+      "The resolver's notification uses the subject 'Thank You for Resolving Recent Service Desk Incident', thanks Carlos, restates the incident summary (keyboard keys not responding), and references the recorded impact, urgency, and priority (all low).",
+      "The resolver's notification notes that now the case is closed they can expect to be assigned another incident within the next few hours."
+    ],
+    "verifiers": [
+      {
+        "verifier_type": "database_state",
+        "name": "reporter_resolution_notification_sent",
+        "description": "Reporter resolution notification sent",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM notification WHERE incident_id = 'INC_017' AND email = 'aisha.williams@techcorp.com' AND type = 'report' AND subject = 'Incident Resolved - Service and Device Ready for Use' AND LOWER(message) LIKE '%email service%' AND LOWER(message) LIKE '%carlos laptop%' AND LOWER(message) LIKE '%resolved%' AND LOWER(message) LIKE '%ready%' AND LOWER(message) LIKE '%continue%' AND LOWER(message) LIKE '%tasks%'",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "resolver_thankyou_notification_sent",
+        "description": "Resolver appreciation notification sent",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM notification WHERE incident_id = 'INC_017' AND email = 'carlos.rodriguez@techcorp.com' AND type = 'report' AND subject = 'Thank You for Resolving Recent Service Desk Incident' AND LOWER(message) LIKE '%thank%' AND LOWER(message) LIKE '%keyboard keys not responding%' AND LOWER(message) LIKE '%impact%' AND LOWER(message) LIKE '%urgency%' AND LOWER(message) LIKE '%priority%' AND LOWER(message) LIKE '%low%' AND LOWER(message) LIKE '%close%' AND LOWER(message) LIKE '%assigned%' AND LOWER(message) LIKE '%incident%' AND LOWER(message) LIKE '%few hours%'",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      }
+    ]
+  }
+}

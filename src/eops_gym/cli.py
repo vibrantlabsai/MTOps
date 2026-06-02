@@ -51,6 +51,11 @@ def add_run_args(parser: argparse.ArgumentParser) -> None:
         help="Max conversation steps per task. Default is 12.",
     )
     parser.add_argument(
+        "--reward-mode", type=str, default="verifier", choices=["verifier", "db_hash"],
+        help="How to score: 'verifier' (original SQL verifiers, comparable to the original "
+             "benchmark; default) or 'db_hash' (tau2-strict gold-action DB-hash x NL).",
+    )
+    parser.add_argument(
         "--save-to", type=str, default=None,
         help="(Optional) path to write full results (trajectories + rewards) as JSON.",
     )
@@ -70,7 +75,13 @@ def _print_task_result(result: TaskResult, verbose: bool) -> None:
                     print(f"  [{role} tool_call] {tc.name}({tc.arguments})")
             elif getattr(msg, "content", None):
                 print(f"  [{role}] {msg.content}")
+    if result.error:
+        print(f"  ERROR    : {result.error}")
     ri = result.reward_info
+    if ri.verifier_check is not None:
+        vc = ri.verifier_check
+        print(f"  verifiers: {sum(c.passed for c in vc.checks)}/{len(vc.checks)} passed "
+              f"(all_passed={vc.all_passed})")
     if ri.db_check is not None:
         print(f"  DB match : {ri.db_check.db_match}")
     if ri.nl_check is not None:
@@ -88,11 +99,18 @@ def run_run(args: argparse.Namespace) -> None:
         user_llm=args.user_llm,
         judge_llm=args.judge_llm,
         max_steps=args.max_steps,
+        reward_mode=args.reward_mode,
         on_result=lambda r: _print_task_result(r, args.verbose),
     )
     print("\n=== Summary ===")
     print(f"domain={results.domain}  agent={results.agent_llm}  user={results.user_llm}  judge={results.judge_llm}")
-    print(f"tasks={len(results.results)}  avg_reward={results.avg_reward:.3f}")
+    n = len(results.results)
+    errored = sum(1 for r in results.results if r.error)
+    print(f"reward_mode={results.reward_mode}  tasks={n}  errored={errored}")
+    print(f"avg_reward (task success)={results.avg_reward:.3f}")
+    vpr = results.avg_verifier_pass_rate
+    if vpr is not None:
+        print(f"avg_verifier_pass_rate={vpr:.3f}")
     if args.save_to:
         dump_file(args.save_to, results.model_dump())
         print(f"saved results to {args.save_to}")

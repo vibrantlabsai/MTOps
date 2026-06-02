@@ -5,6 +5,7 @@ a litellm ``completion`` call and return an ``AssistantMessage``.
 """
 
 import json
+import re
 from typing import Optional
 
 from eops_gym.data_model.message import (
@@ -27,8 +28,15 @@ def to_litellm_messages(messages: list[Message]) -> list[dict]:
                 {"role": "tool", "tool_call_id": msg.id, "content": msg.content or ""}
             )
         else:  # user / assistant
-            entry: dict = {"role": msg.role, "content": msg.content or ""}
-            if getattr(msg, "tool_calls", None):
+            content = msg.content or ""
+            tool_calls = getattr(msg, "tool_calls", None)
+            # Providers reject empty/whitespace content on a non-tool message (e.g. a reasoning
+            # model that returned only a <think> block, which strips to ""). Some require a
+            # non-whitespace char (pattern '\S'), so use a minimal visible placeholder.
+            if not content.strip() and not tool_calls:
+                content = "..."
+            entry: dict = {"role": msg.role, "content": content}
+            if tool_calls:
                 entry["tool_calls"] = [
                     {
                         "id": tc.id or f"call_{i}",
@@ -76,7 +84,22 @@ def generate(
             for tc in choice.tool_calls
         ]
 
-    return AssistantMessage(content=choice.content, tool_calls=tool_calls)
+    return AssistantMessage(content=_strip_think(choice.content), tool_calls=tool_calls)
+
+
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
+def _strip_think(text: Optional[str]) -> Optional[str]:
+    """Remove ``<think>...</think>`` reasoning blocks from a model's content.
+
+    Reasoning models (e.g. Sarvam-M, DeepSeek-R1) emit chain-of-thought inline. Left in, it
+    pollutes the trajectory and breaks substring checks like the user-simulator stop token
+    (which would otherwise match a '###STOP###' the model merely mentions while reasoning).
+    """
+    if not text:
+        return text
+    return _THINK_RE.sub("", text).strip()
 
 
 def _parse_args(arguments) -> dict:

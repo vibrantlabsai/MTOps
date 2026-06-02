@@ -1,0 +1,99 @@
+{
+  "id": "itsm_consolidate_support_groups_001",
+  "user_scenario": {
+    "persona": {
+      "name": "Marcus Thompson",
+      "personality": "A decisive IT manager driving an org-wide team reorganization; concise, outcome-focused, and expects the assistant to execute the consolidation end to end without hand-holding."
+    },
+    "task_description": "The current manager requires a single, unified space to communicate with all members who previously belonged to the different Support teams (excluding 'IT Support Team' as it is working on a critical task and will be addressed later separately). As part of this shift, the existing Support teams should be formally dissolved and create a new consolidated group named 'Cloud Ops Alpha', categorized as 'IT Support' with the description 'Next-gen cloud infrastructure handling'. After establishing the new group, add all individuals from the former Support teams so they retain their communication channels and required access. Finally, ensure that any currently available manager is assigned to oversee the newly formed group."
+  },
+  "environment": {
+    "seed": "seed_main",
+    "acting_user_id": "USER_001"
+  },
+  "selected_tools": [
+    "list_group_members",
+    "list_user_groups",
+    "update_user_group",
+    "list_users",
+    "add_new_group_member",
+    "add_new_user_group"
+  ],
+  "initial_state_delta": null,
+  "evaluation_criteria": {
+    "actions": [
+      {
+        "name": "update_user_group",
+        "arguments": {
+          "group_id": "GROUP_001",
+          "active": false
+        }
+      },
+      {
+        "name": "add_new_user_group",
+        "arguments": {
+          "name": "Cloud Ops Alpha",
+          "type": "IT Support",
+          "description": "Next-gen cloud infrastructure handling",
+          "manager_id": "USER_002",
+          "active": true
+        }
+      },
+      {
+        "name": "add_new_group_member",
+        "arguments": {
+          "group_id": "GROUP_005",
+          "user_id": "USER_003"
+        }
+      },
+      {
+        "name": "add_new_group_member",
+        "arguments": {
+          "group_id": "GROUP_005",
+          "user_id": "USER_004"
+        }
+      }
+    ],
+    "nl_assertions": [
+      "The former Support team 'Level 1 Support Team' (GROUP_001) is dissolved by being deactivated, while the 'IT Support Team' is left untouched.",
+      "A new active group named 'Cloud Ops Alpha' of type 'IT Support' is created with the description 'Next-gen cloud infrastructure handling'.",
+      "An available manager (Priya Sharma, USER_002) is assigned to oversee the newly created 'Cloud Ops Alpha' group.",
+      "All members of the dissolved former Support team(s) are added to 'Cloud Ops Alpha' so they retain their communication channels and access."
+    ],
+    "verifiers": [
+      {
+        "verifier_type": "database_state",
+        "name": "Archiving group",
+        "description": "Archiving group",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "select count() from user_group where group_id = 'GROUP_001' and active = 0",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "Creating group",
+        "description": "Creating group",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "select count() from user_group where name = 'Cloud Ops Alpha' and type = 'IT Support' and active = 1 and description = 'Next-gen cloud infrastructure handling' and manager_id = 'USER_002' ",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "Checing group members",
+        "description": "Checing group members",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "select count() from user_group_member where group_id = ( select group_id from user_group where name = 'Cloud Ops Alpha' and type = 'IT Support' and active = 1 and description = 'Next-gen cloud infrastructure handling')",
+          "expected_value": 2,
+          "comparison_type": "equals"
+        }
+      }
+    ]
+  }
+}

@@ -75,7 +75,7 @@ def evaluate_nl_assertions(
 
 def _parse_judge_response(content: Optional[str], nl_assertions: list[str]) -> list[NLAssertionCheck]:
     try:
-        data = json.loads(_strip_code_fence(content or ""))
+        data = json.loads(_extract_json(content or ""))
         results = data["results"]
     except (json.JSONDecodeError, KeyError, TypeError) as e:
         logger.warning(f"could not parse NL judge response: {e}")
@@ -91,6 +91,24 @@ def _parse_judge_response(content: Optional[str], nl_assertions: list[str]) -> l
             )
         )
     return checks
+
+
+def _extract_json(text: str) -> str:
+    """Best-effort extraction of the JSON object from a judge response.
+
+    Robust to reasoning models that wrap output in ``<think>...</think>`` blocks and to
+    markdown code fences: strip both, then fall back to the outermost ``{...}`` span.
+    """
+    import re
+
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
+    text = _strip_code_fence(text)
+    if text.startswith("{"):
+        return text
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return text[start : end + 1]
+    return text
 
 
 def _strip_code_fence(text: str) -> str:

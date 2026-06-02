@@ -1,0 +1,148 @@
+{
+  "id": "itsm_india_service_desk_onboarding_001",
+  "user_scenario": {
+    "persona": {
+      "name": "Karen Watkins",
+      "personality": "Organized and forward-planning IT operations lead; gives detailed, batch instructions and expects everything set up correctly in advance for a smooth day one."
+    },
+    "task_description": "We're setting up a new Service Desk team for our India operations and need to get four new members into the system. Arjun Mehta (arjun.mehta@company.com, +91-98101-00011, role Agent) and Priya Nair (priya.nair@company.com, +91-98101-00012, role Agent) both joined today and need to be ready to start handling tickets immediately. In addition, Rohan Sharma (rohan.sharma@company.com, +91-98101-00013, role Reporter) and Neha Iyer (neha.iyer@company.com, +91-98101-00014, role Manager), who will be joining fifteen days from now, their accounts should still be created now so everything is set up in advance. Once all four user profiles have been created, create a new user group named \"India Service Desk\" with the group type \"Service Desk\" and the description \"Frontline IT support for India offices.\" Add Arjun, Priya, Rohan, and Neha as members of this India Service Desk group, and set Neha Iyer as the manager of the group so that the team structure and access are fully ready for day one."
+  },
+  "environment": {
+    "seed": "seed_alt",
+    "acting_user_id": "USER_039"
+  },
+  "selected_tools": [
+    "add_new_group_member",
+    "add_new_user",
+    "add_new_user_group",
+    "get_user"
+  ],
+  "initial_state_delta": null,
+  "evaluation_criteria": {
+    "actions": [
+      {
+        "name": "add_new_user",
+        "arguments": {
+          "first_name": "Arjun",
+          "last_name": "Mehta",
+          "email": "arjun.mehta@company.com",
+          "phone": "+91-98101-00011",
+          "role": "agent",
+          "active": true
+        }
+      },
+      {
+        "name": "add_new_user",
+        "arguments": {
+          "first_name": "Priya",
+          "last_name": "Nair",
+          "email": "priya.nair@company.com",
+          "phone": "+91-98101-00012",
+          "role": "agent",
+          "active": true
+        }
+      },
+      {
+        "name": "add_new_user",
+        "arguments": {
+          "first_name": "Rohan",
+          "last_name": "Sharma",
+          "email": "rohan.sharma@company.com",
+          "phone": "+91-98101-00013",
+          "role": "reporter",
+          "active": false
+        }
+      },
+      {
+        "name": "add_new_user",
+        "arguments": {
+          "first_name": "Neha",
+          "last_name": "Iyer",
+          "email": "neha.iyer@company.com",
+          "phone": "+91-98101-00014",
+          "role": "manager",
+          "active": false
+        }
+      },
+      {
+        "name": "add_new_user_group",
+        "arguments": {
+          "name": "India Service Desk",
+          "type": "Service Desk",
+          "manager_id": "USER_104",
+          "description": "Frontline IT support for India offices.",
+          "active": true
+        }
+      },
+      {
+        "name": "add_new_group_member",
+        "arguments": {
+          "group_id": "GROUP_009",
+          "user_id": "USER_101"
+        }
+      },
+      {
+        "name": "add_new_group_member",
+        "arguments": {
+          "group_id": "GROUP_009",
+          "user_id": "USER_102"
+        }
+      },
+      {
+        "name": "add_new_group_member",
+        "arguments": {
+          "group_id": "GROUP_009",
+          "user_id": "USER_103"
+        }
+      },
+      {
+        "name": "add_new_group_member",
+        "arguments": {
+          "group_id": "GROUP_009",
+          "user_id": "USER_104"
+        }
+      }
+    ],
+    "nl_assertions": [
+      "Four new users are created: Arjun Mehta and Priya Nair as active agents, and Rohan Sharma (reporter) and Neha Iyer (manager) as inactive accounts since they join in fifteen days.",
+      "A new user group named 'India Service Desk' of type 'Service Desk' with the description 'Frontline IT support for India offices.' is created and active, with Neha Iyer set as its manager.",
+      "All four new users (Arjun, Priya, Rohan, and Neha) are added as members of the India Service Desk group.",
+      "The agent confirms the India Service Desk team structure and access are fully set up and ready for day one."
+    ],
+    "verifiers": [
+      {
+        "verifier_type": "database_state",
+        "name": "Users created with correct roles and active/inactive flags",
+        "description": "Verify that the users are created with correct roles and active/inactive flags",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) AS cnt FROM users WHERE (first_name='Arjun' AND last_name='Mehta' AND email='arjun.mehta@company.com' AND role='agent' AND active=TRUE) OR (first_name='Priya' AND last_name='Nair' AND email='priya.nair@company.com' AND role='agent' AND active=TRUE) OR (first_name='Rohan' AND last_name='Sharma' AND email='rohan.sharma@company.com' AND role='reporter' AND active=FALSE) OR (first_name='Neha' AND last_name='Iyer' AND email='neha.iyer@company.com' AND role='manager' AND active=FALSE);",
+          "expected_value": 4,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "India Service Desk group created",
+        "description": "Verify that India Service Desk group is created with Neha as a manager.",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) AS cnt FROM user_group g JOIN users u ON g.manager_id = u.user_id WHERE g.name = 'India Service Desk' AND g.type = 'Service Desk' AND g.description = 'Frontline IT support for India offices.' AND g.active = TRUE;",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "All four users are members of \"India Service Desk\"",
+        "description": "Verify that all four users are members of \"India Service Desk\"",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(DISTINCT u.email) AS cnt FROM user_group_member gm JOIN user_group g ON gm.group_id = g.group_id JOIN users u ON gm.user_id = u.user_id WHERE g.name = 'India Service Desk' AND g.type = 'Service Desk' AND u.email IN ( 'arjun.mehta@company.com', 'priya.nair@company.com', 'rohan.sharma@company.com', 'neha.iyer@company.com' );",
+          "expected_value": 4,
+          "comparison_type": "equals"
+        }
+      }
+    ]
+  }
+}

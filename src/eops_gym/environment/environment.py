@@ -20,8 +20,8 @@ class Environment:
     def get_policy(self) -> str:
         return self.policy
 
-    def get_tool_schemas(self) -> list[dict]:
-        return self.tools.get_tool_schemas()
+    def get_tool_schemas(self, include: Optional[list[str]] = None) -> list[dict]:
+        return self.tools.get_tool_schemas(include=include)
 
     def make_tool_call(self, tool_name: str, **kwargs):
         """Execute a tool call directly (used for gold-action replay)."""

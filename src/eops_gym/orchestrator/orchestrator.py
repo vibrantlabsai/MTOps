@@ -12,6 +12,9 @@ from eops_gym.data_model.message import AssistantMessage, Message, ToolCall
 from eops_gym.environment.environment import Environment
 from eops_gym.user.user_simulator import UserSimulator
 
+#: Fixed greeting the agent opens every conversation with (no LLM call), tau2-style.
+DEFAULT_FIRST_AGENT_MESSAGE = "Hi! How can I help you today?"
+
 
 class Agent(Protocol):
     def get_init_state(self): ...
@@ -45,30 +48,34 @@ class Orchestrator:
         agent_state = self.agent.get_init_state()
         user_state = self.user.get_init_state()
 
-        # The user opens the conversation.
-        user_msg, user_state = self.user.generate_next_message(None, user_state)
-        trajectory.append(user_msg)
+        # The agent opens with a fixed greeting (no LLM call), mirroring tau2. This guarantees
+        # the user simulator always has a non-system message to respond to — required by
+        # providers like Anthropic, which reject a system-only message list.
+        last_agent_msg: Message = AssistantMessage(content=DEFAULT_FIRST_AGENT_MESSAGE)
+        trajectory.append(last_agent_msg)
 
-        stopped = self.user.is_stop(user_msg)
-        last_to_agent: Message = user_msg
+        stopped = False
         steps = 0
 
-        while not stopped and steps < self.max_steps:
+        while steps < self.max_steps:
             steps += 1
-            agent_msg, agent_state = self.agent.generate_next_message(last_to_agent, agent_state)
-            trajectory.append(agent_msg)
+            # User responds to the agent's last message; may end the conversation.
+            user_msg, user_state = self.user.generate_next_message(last_agent_msg, user_state)
+            trajectory.append(user_msg)
+            if self.user.is_stop(user_msg):
+                stopped = True
+                break
 
-            if agent_msg.is_tool_call():
+            # Agent replies; drain any tool calls until it produces a text reply for the user.
+            agent_msg, agent_state = self.agent.generate_next_message(user_msg, agent_state)
+            trajectory.append(agent_msg)
+            while agent_msg.is_tool_call() and steps < self.max_steps:
+                steps += 1
                 for tc in agent_msg.tool_calls or []:
                     agent_tool_calls.append(tc)
-                    tool_msg = self.environment.get_response(tc)
-                    trajectory.append(tool_msg)
-                last_to_agent = trajectory[-1]
-                continue  # let the agent observe tool results before the user replies
-
-            user_msg, user_state = self.user.generate_next_message(agent_msg, user_state)
-            trajectory.append(user_msg)
-            last_to_agent = user_msg
-            stopped = self.user.is_stop(user_msg)
+                    trajectory.append(self.environment.get_response(tc))
+                agent_msg, agent_state = self.agent.generate_next_message(trajectory[-1], agent_state)
+                trajectory.append(agent_msg)
+            last_agent_msg = agent_msg
 
         return RunResult(trajectory=trajectory, agent_tool_calls=agent_tool_calls, stopped=stopped)

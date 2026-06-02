@@ -34,10 +34,16 @@ class Action(BaseModel):
 
 
 class EvaluationCriteria(BaseModel):
-    """How a task is scored (item 6): DB match via actions + NL assertions."""
+    """How a task is scored: gold actions (DB-hash), NL assertions, and/or SQL verifiers.
+
+    ``verifiers`` are the original benchmark's ``database_state`` checks
+    (``{query, expected_value, comparison_type}``); scoring against them is directly
+    comparable to the original EnterpriseOps leaderboard.
+    """
 
     actions: List[Action] = Field(default_factory=list)
     nl_assertions: List[str] = Field(default_factory=list)
+    verifiers: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class Task(BaseModel):
@@ -48,3 +54,9 @@ class Task(BaseModel):
     evaluation_criteria: EvaluationCriteria = Field(default_factory=EvaluationCriteria)
     # item 7: collection -> record_id -> {set|create|delete}
     initial_state_delta: Optional[Delta] = None
+    # Domain runtime context: which seed db to load and the authenticated caller, e.g.
+    # {"seed": "seed_main", "acting_user_id": "USER_001"}.
+    environment: Optional[Dict[str, Any]] = None
+    # Optional oracle-mode tool subset exposed to the agent (mirrors the original benchmark's
+    # selected_tools); when None the agent sees the full domain toolset.
+    selected_tools: Optional[List[str]] = None

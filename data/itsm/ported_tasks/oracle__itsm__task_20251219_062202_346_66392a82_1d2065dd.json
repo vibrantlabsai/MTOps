@@ -1,0 +1,107 @@
+{
+  "id": "itsm_group_consolidate_unified_reliability_001",
+  "user_scenario": {
+    "persona": {
+      "name": "Marcus Thompson",
+      "personality": "An organized, decisive IT administrator who wants to streamline team structure efficiently and expects the consolidation to be carried out cleanly without back-and-forth."
+    },
+    "task_description": "At the moment, we need a single combined group to work together with all members from different teams after dissolving those teams. There are two separate teams working at the same site: one called 'IT Support Team' that handles day-to-day user and service support, and another called 'Infrastructure Team' that looks after backend systems and platform stability. The new consolidated group should named 'Unified Reliability Squad', categorised as 'IT Support'. Add everyone who belongs to those team groups and assign any active manager to oversee this newly created group."
+  },
+  "environment": {
+    "seed": "seed_main",
+    "acting_user_id": "USER_001"
+  },
+  "selected_tools": [
+    "list_user_groups",
+    "get_user",
+    "add_new_user_group",
+    "list_users",
+    "list_group_members",
+    "add_new_group_member",
+    "update_user_group"
+  ],
+  "initial_state_delta": null,
+  "evaluation_criteria": {
+    "actions": [
+      {
+        "name": "add_new_user_group",
+        "arguments": {
+          "name": "Unified Reliability Squad",
+          "type": "IT Support",
+          "manager_id": "USER_002",
+          "active": true,
+          "description": "Consolidated reliability group merging the IT Support Team and Infrastructure Team."
+        }
+      },
+      {
+        "name": "add_new_group_member",
+        "arguments": {
+          "group_id": "GROUP_005",
+          "user_id": "USER_009"
+        }
+      },
+      {
+        "name": "add_new_group_member",
+        "arguments": {
+          "group_id": "GROUP_005",
+          "user_id": "USER_008"
+        }
+      },
+      {
+        "name": "update_user_group",
+        "arguments": {
+          "group_id": "GROUP_003",
+          "active": false
+        }
+      },
+      {
+        "name": "update_user_group",
+        "arguments": {
+          "group_id": "GROUP_004",
+          "active": false
+        }
+      }
+    ],
+    "nl_assertions": [
+      "A new active user group named 'Unified Reliability Squad' of type 'IT Support' is created and overseen by an active manager.",
+      "Every member of the old 'IT Support Team' (GROUP_003) and 'Infrastructure Team' (GROUP_004) is added as a member of the new consolidated group.",
+      "Both the old 'IT Support Team' and 'Infrastructure Team' groups are deactivated (dissolved).",
+      "The agent confirms the consolidation by reporting the new group and its members back to the user."
+    ],
+    "verifiers": [
+      {
+        "verifier_type": "database_state",
+        "name": "New unified group created with correct properties",
+        "description": "Verify that new unified group created with correct properties",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) AS cnt FROM user_group WHERE name = 'Unified Reliability Squad' AND type = 'IT Support' AND manager_id IN ('USER_002', 'USER_008') AND active = 1;",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "Old support and infrastructure teams have been deactivated",
+        "description": "Verify that old support and infrastructure teams have been deactivated",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) AS cnt FROM user_group WHERE group_id IN ('GROUP_003', 'GROUP_004') AND active = 0;",
+          "expected_value": 2,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "All members from the old groups are now members of the new unified group",
+        "description": "Verify that all members from the old groups are now members of the new unified group",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) AS cnt FROM user_group_member WHERE group_id = 'GROUP_005' AND user_id IN ('USER_009', 'USER_008');",
+          "expected_value": 2,
+          "comparison_type": "equals"
+        }
+      }
+    ]
+  }
+}
