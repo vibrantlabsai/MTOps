@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 from eops_gym.agent.llm_agent import LLMAgent
 from eops_gym.data_model.message import AssistantMessage, ToolCall, UserMessage
-from eops_gym.data_model.tasks import UserProfile, UserScenario
+from eops_gym.data_model.tasks import UserProfile, Scenario
 from eops_gym.user.base import STOP
 from eops_gym.user.user_simulator import UserSimulator
 from eops_gym.utils.llm_utils import generate
@@ -64,8 +64,8 @@ def test_llm_utils_strips_think_blocks(mocker):
 def test_agent_init_state_and_turn(mocker):
     agent = LLMAgent(policy="DOMAIN POLICY", tool_schemas=[], llm="gpt-4o")
     state = agent.get_init_state()
-    assert state.messages[0].role == "system"
-    assert "DOMAIN POLICY" in state.messages[0].content
+    assert state.system_messages[0].role == "system"
+    assert "DOMAIN POLICY" in state.system_messages[0].content
 
     mocker.patch(
         "eops_gym.agent.llm_agent.generate",
@@ -79,7 +79,7 @@ def test_agent_init_state_and_turn(mocker):
 
 
 def _scenario():
-    return UserScenario(persona=UserProfile(name="Dana", personality="terse"), task_description="reset my VPN")
+    return Scenario(persona=UserProfile(name="Dana", personality="terse"), task_description="reset my VPN")
 
 
 def test_user_sim_system_prompt_and_stop():

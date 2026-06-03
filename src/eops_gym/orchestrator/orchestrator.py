@@ -8,7 +8,7 @@ and ``get_init_state()`` — a real litellm agent is item 1's concern.
 
 from typing import Protocol
 
-from eops_gym.data_model.message import AssistantMessage, Message, ToolCall
+from eops_gym.data_model.message import AssistantMessage, Message, MultiToolMessage, ToolCall
 from eops_gym.environment.environment import Environment
 from eops_gym.user.base import STOP
 from eops_gym.user.user_simulator import UserSimulator
@@ -78,10 +78,16 @@ class Orchestrator:
             trajectory.append(agent_msg)
             while agent_msg.is_tool_call() and steps < self.max_steps:
                 steps += 1
+                tool_msgs = []
                 for tc in agent_msg.tool_calls or []:
                     agent_tool_calls.append(tc)
-                    trajectory.append(self.environment.get_response(tc))
-                agent_msg, agent_state = self.agent.generate_next_message(trajectory[-1], agent_state)
+                    tm = self.environment.get_response(tc)
+                    trajectory.append(tm)
+                    tool_msgs.append(tm)
+                # Hand the agent every tool result: a single ToolMessage for one call, or a
+                # MultiToolMessage for parallel calls (so no result is dropped from its state).
+                agent_input = tool_msgs[0] if len(tool_msgs) == 1 else MultiToolMessage(tool_messages=tool_msgs)
+                agent_msg, agent_state = self.agent.generate_next_message(agent_input, agent_state)
                 trajectory.append(agent_msg)
             last_agent_msg = agent_msg
 
