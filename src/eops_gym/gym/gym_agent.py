@@ -175,7 +175,6 @@ class AgentGymEnv(gym.Env):
         max_steps: int = 100,
         user_llm: Optional[str] = None,
         user_llm_args: Optional[dict] = None,
-        reward_mode: str = "verifier",
     ):
         from eops_gym.config import DEFAULT_LLM_USER, DEFAULT_LLM_USER_ARGS
         from eops_gym.run import get_domain
@@ -185,7 +184,6 @@ class AgentGymEnv(gym.Env):
         self.max_steps = max_steps
         self.user_llm = user_llm or DEFAULT_LLM_USER
         self.user_llm_args = user_llm_args if user_llm_args is not None else dict(DEFAULT_LLM_USER_ARGS)
-        self.reward_mode = reward_mode
 
         self._spec = get_domain(domain)
         tasks = {t.id: t for t in self._spec.get_tasks()}
@@ -205,17 +203,15 @@ class AgentGymEnv(gym.Env):
 
     # -- construction --------------------------------------------------------
     def _env_ctor(self, db_delta=None):
-        cfg = self._task.environment or {}
         return self._spec.get_environment(
-            db_delta=db_delta, seed=cfg.get("seed", "seed_main"),
-            acting_user_id=cfg.get("acting_user_id"),
+            db_delta=db_delta, acting_user_id=self._task.acting_user_id,
         )
 
     def _build(self):
         env = self._env_ctor(db_delta=self._task.initial_state_delta)
-        tool_schemas = env.get_tool_schemas(include=self._task.selected_tools)
+        tool_schemas = env.get_tool_schemas()
         agent = GymAgent(tool_schemas, env.get_policy())
-        user = UserSimulator(self._task.user_scenario, llm=self.user_llm, llm_args=self.user_llm_args)
+        user = UserSimulator(self._task.scenario, llm=self.user_llm, llm_args=self.user_llm_args)
         orchestrator = Orchestrator(agent, user, env, max_steps=self.max_steps)
         return env, agent, orchestrator
 
@@ -281,7 +277,7 @@ class AgentGymEnv(gym.Env):
             return 0.0, None
         ri = evaluate_task(
             self._env_ctor, self._task, trajectory=self._run_result.trajectory,
-            final_env=self._env, reward_mode=self.reward_mode, skip_nl_assertions=True,
+            final_env=self._env, skip_nl_assertions=True,
         )
         return ri.reward, ri.model_dump()
 
