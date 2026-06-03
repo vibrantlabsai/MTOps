@@ -1,10 +1,8 @@
 ## EnterpriseOps Gym 2
 
 EnterpriseOps Gym 2 is a benchmark for evaluating LLM agents on stateful, multi-step
-enterprise-operations workflows. It is a port of ServiceNow's
-[EnterpriseOps-Gym](https://github.com/ServiceNow/EnterpriseOps-Gym) into an in-process
-architecture: an agent talks to a simulated user, operates on an in-memory domain database
-through typed tools, and is scored against gold criteria.
+enterprise-operations workflows: an agent talks to a simulated user, operates on an in-memory
+domain database through typed tools, and is scored against gold criteria.
 
 Each domain specifies:
 
@@ -42,10 +40,6 @@ flowchart TD
     DBH --> REW(["reward"])
     NL --> REW
 ```
-
-The original benchmark instead ran a Dockerized MCP server per domain (SQLite over HTTP). This
-port collapses all of that into the in-process pieces above; the Docker MCP is used only at
-build/test time as a fidelity oracle (see "Provenance" / "Tests").
 
 ## Setup
 
@@ -87,7 +81,10 @@ the evaluator. Useful flags:
 | `--task-ids` | all | Run only these task ids |
 | `--num-tasks` | all | Run at most N tasks |
 | `--max-steps` | `12` | Max conversation steps per task |
-| `--save-to` | — | Write full results (trajectories + rewards) to JSON |
+| `--k` | `1` | Trials (rollouts) per task; `>1` reports `pass^k` |
+| `--seed` | — | Base seed; trial `i` uses `seed+i` (best-effort per provider) |
+| `--save-to` | — | Write all results (trajectories + rewards) to one JSON file |
+| `--log-dir` | — | Write a structured run dir: `summary.json` + per task/trial trajectories |
 | `--verbose`, `-v` | off | Print each task's conversation |
 
 ```bash
@@ -97,6 +94,11 @@ eops run --domain itsm --num-tasks 1 --verbose --save-to results.json
 **Scoring**: reward = gold-action full-DB-hash match × NL assertions. A task passes (reward 1.0)
 only if the agent's end-state matches the gold replay of the task's `actions` **and** every NL
 assertion is met. Either criterion may be omitted by a task, in which case it doesn't gate.
+
+**Multiple rollouts**: pass `--k N` to run each task `N` times; the summary then reports the
+`pass^k` reliability curve (`C(c,j)/C(n,j)`, averaged over tasks) alongside `avg_reward`. Add
+`--log-dir DIR` to persist a run: `DIR/summary.json` (metadata + metrics) plus
+`DIR/<task_id>/trial_<i>.json` for every run.
 
 ### Running with a specific provider
 
@@ -132,39 +134,6 @@ print(result.reward)
 
 `examples/run_eval.py` runs one task end to end (override models via `AGENT_MODEL` / `USER_MODEL`
 / `JUDGE_MODEL`).
-
-## Gym interface (RL / training)
-
-A **Gymnasium-compatible** wrapper (`eops_gym.gym`) exposes the eval as a standard `reset`/`step`
-RL loop — the learner policy plays the **agent** against the user simulator, and reward is the
-(sparse, terminal) evaluator score. Requires the optional extra:
-
-```bash
-uv pip install -e ".[gym]"
-```
-
-```python
-import gymnasium as gym
-from eops_gym.gym import register_gym_agent, EOPS_ENV_ID
-
-register_gym_agent()
-env = gym.make(EOPS_ENV_ID, domain="itsm", task_id="itsm_register_ci_and_incident_001")
-
-obs, info = env.reset()      # obs: conversation string; info: {task_id, tools, policy}
-obs, reward, terminated, truncated, info = env.step(
-    'register_configuration_item(name="...", owner_id="USER_004", serial_number="...", status="in_use", cost=78000)')
-# ...take more actions...
-obs, reward, terminated, truncated, info = env.step("done()")   # ends the episode
-```
-
-- **action** (string): a natural-language message, a tool call (functional `name(arg='x')` or
-  JSON `{"name":..,"arguments":..}`), or `done()` to end the episode.
-- **observation** (string): the conversation so far (`role: content` lines).
-- **reward**: **sparse / terminal** — `0.0` on every step, then the task's gold-action DB-match
-  score (0/1) on the terminal step. Suited to outcome-reward RL (GRPO / REINFORCE / rejection sampling).
-- The **user simulator runs automatically** (needs a `user_llm`); the policy only acts as the
-  agent. Under the hood the real `Orchestrator` runs in a background thread and the agent blocks
-  for each `step(action)`. Reward skips the NL judge for speed/determinism.
 
 ## How a task is defined
 
