@@ -78,3 +78,6 @@ Thumbs.db
 # Eval output artifacts
 results.json
 *.results.json
+results*.json
+*.log
+runs/

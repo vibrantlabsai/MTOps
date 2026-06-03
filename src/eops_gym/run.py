@@ -2,10 +2,15 @@
 
 A small, registry-backed runner in the spirit of tau2's ``run.py``. Only the
 ``itsm`` domain is wired today; add an entry to ``DOMAINS`` to register more.
+
+Supports **k trials per task** (``run_domain(..., k=...)``) with optional seeding, and reports
+both the mean reward and the tau2-style ``pass^k`` reliability curve. ``save_run_dir`` writes a
+structured run directory (compact ``summary.json`` + per task/trial trajectory files).
 """
 
+import math
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 from pydantic import BaseModel
 
@@ -20,6 +25,7 @@ from eops_gym.domains.itsm import environment as itsm_environment
 from eops_gym.environment.environment import Environment
 from eops_gym.evaluator.evaluator import RewardInfo, evaluate_task
 from eops_gym.orchestrator.orchestrator import Orchestrator
+from eops_gym.utils.io_utils import dump_file
 
 DEFAULT_LLM_AGENT = "gpt-4o"
 
@@ -53,16 +59,27 @@ def get_domain(name: str) -> DomainSpec:
     return DOMAINS[name]
 
 
+def _pass_hat_k(n: int, c: int, k: int) -> float:
+    """Unbiased estimate that a random size-k subset of n trials (c passing) all pass.
+
+    The HumanEval / tau2 ``pass^k`` estimator: ``C(c, k) / C(n, k)``.
+    """
+    if k > n or math.comb(n, k) == 0:
+        return 0.0
+    return math.comb(c, k) / math.comb(n, k)
+
+
 class TaskResult(BaseModel):
-    """Outcome of a single task run (serialisable for --save-to)."""
+    """Outcome of a single task trial (serialisable for --save-to / run dir)."""
 
     task_id: str
+    trial: int = 0
     reward: float
     reward_info: RewardInfo
     stopped: bool
     num_tool_calls: int
     trajectory: list[Message]
-    error: Optional[str] = None  # set if the task crashed (e.g. provider error); reward is 0
+    error: Optional[str] = None  # set if the trial crashed (e.g. provider error); reward is 0
 
 
 class RunResults(BaseModel):
@@ -70,24 +87,36 @@ class RunResults(BaseModel):
     agent_llm: str
     user_llm: str
     judge_llm: str
-    reward_mode: str = "verifier"
-    results: list[TaskResult]
+    k: int = 1
+    results: list[TaskResult]  # flat list of every task x trial outcome
 
     @property
     def avg_reward(self) -> float:
+        """Mean reward across all task x trial runs."""
         if not self.results:
             return 0.0
         return sum(r.reward for r in self.results) / len(self.results)
 
-    @property
-    def avg_verifier_pass_rate(self) -> Optional[float]:
-        """Mean per-verifier pass rate across tasks that define verifiers (the original's metric)."""
-        rates = [
-            r.reward_info.verifier_check.pass_rate
-            for r in self.results
-            if r.reward_info.verifier_check is not None
-        ]
-        return (sum(rates) / len(rates)) if rates else None
+    def rewards_by_task(self) -> dict[str, list[float]]:
+        by_task: dict[str, list[float]] = {}
+        for r in self.results:
+            by_task.setdefault(r.task_id, []).append(r.reward)
+        return by_task
+
+    def avg_pass_hat_k(self) -> dict[int, float]:
+        """``pass^j`` for j=1..k, averaged over tasks (a trial 'passes' when reward >= 1.0)."""
+        by_task = self.rewards_by_task()
+        if not by_task:
+            return {}
+        out: dict[int, float] = {}
+        for j in range(1, self.k + 1):
+            vals = []
+            for rewards in by_task.values():
+                n = len(rewards)
+                c = sum(1 for x in rewards if x >= 1.0)
+                vals.append(_pass_hat_k(n, c, j))
+            out[j] = sum(vals) / len(vals)
+        return out
 
 
 def run_task(
@@ -97,24 +126,28 @@ def run_task(
     user_llm: str = DEFAULT_LLM_USER,
     judge_llm: str = DEFAULT_LLM_NL_JUDGE,
     max_steps: int = 12,
-    reward_mode: str = "verifier",
+    seed: Optional[int] = None,
+    trial: int = 0,
 ) -> TaskResult:
-    """Run and evaluate a single task end to end."""
+    """Run and evaluate a single task trial end to end.
+
+    ``seed`` (when set) is applied to the agent LLM for reproducibility — best-effort, since
+    not every provider honours it (e.g. Bedrock/Anthropic drop it).
+    """
     spec = get_domain(domain)
 
-    # Bake the task's runtime context (seed + acting user) into a constructor so the live run,
-    # the gold-action replay, and the predicted-state rebuild all use the same environment.
-    env_cfg = task.environment or {}
-
+    # Bake the task's acting user into a constructor so the live run, the gold-action replay,
+    # and the predicted-state rebuild all use the same environment.
     def env_ctor(db_delta=None):
         return spec.get_environment(
             db_delta=db_delta,
-            seed=env_cfg.get("seed", "seed_main"),
-            acting_user_id=env_cfg.get("acting_user_id"),
+            acting_user_id=task.acting_user_id,
         )
 
     env = env_ctor(db_delta=task.initial_state_delta)
-    agent = LLMAgent(env.get_policy(), env.get_tool_schemas(include=task.selected_tools), agent_llm)
+    agent = LLMAgent(env.get_policy(), env.get_tool_schemas(), agent_llm)
+    if seed is not None:
+        agent.set_seed(seed)
     user_sim = _make_user(task, user_llm)
 
     run = Orchestrator(agent, user_sim, env, max_steps=max_steps).run()
@@ -124,10 +157,10 @@ def run_task(
         trajectory=run.trajectory,
         final_env=env,
         nl_llm=judge_llm,
-        reward_mode=reward_mode,
     )
     return TaskResult(
         task_id=task.id,
+        trial=trial,
         reward=reward_info.reward,
         reward_info=reward_info,
         stopped=run.stopped,
@@ -144,10 +177,15 @@ def run_domain(
     user_llm: str = DEFAULT_LLM_USER,
     judge_llm: str = DEFAULT_LLM_NL_JUDGE,
     max_steps: int = 12,
-    reward_mode: str = "verifier",
+    k: int = 1,
+    seed: Optional[int] = None,
     on_result: Optional[Callable[[TaskResult], None]] = None,
 ) -> RunResults:
-    """Run and evaluate a set of tasks for a domain."""
+    """Run and evaluate a set of tasks for a domain, ``k`` trials each.
+
+    When ``seed`` is given, trial ``i`` of every task uses ``seed + i`` (reproducible); otherwise
+    trials vary only by sampling temperature.
+    """
     spec = get_domain(domain)
     tasks = spec.get_tasks()
     if task_ids:
@@ -158,41 +196,96 @@ def run_domain(
 
     results: list[TaskResult] = []
     for task in tasks:
-        try:
-            result = run_task(
-                domain,
-                task,
-                agent_llm=agent_llm,
-                user_llm=user_llm,
-                judge_llm=judge_llm,
-                max_steps=max_steps,
-                reward_mode=reward_mode,
-            )
-        except Exception as e:  # noqa: BLE001 - one task's failure shouldn't abort the batch
-            result = TaskResult(
-                task_id=task.id,
-                reward=0.0,
-                reward_info=RewardInfo(reward=0.0),
-                stopped=False,
-                num_tool_calls=0,
-                trajectory=[],
-                error=f"{type(e).__name__}: {e}",
-            )
-        results.append(result)
-        if on_result is not None:
-            on_result(result)
+        for trial in range(k):
+            trial_seed = None if seed is None else seed + trial
+            try:
+                result = run_task(
+                    domain,
+                    task,
+                    agent_llm=agent_llm,
+                    user_llm=user_llm,
+                    judge_llm=judge_llm,
+                    max_steps=max_steps,
+                    seed=trial_seed,
+                    trial=trial,
+                )
+            except Exception as e:  # noqa: BLE001 - one trial's failure shouldn't abort the batch
+                result = TaskResult(
+                    task_id=task.id,
+                    trial=trial,
+                    reward=0.0,
+                    reward_info=RewardInfo(reward=0.0),
+                    stopped=False,
+                    num_tool_calls=0,
+                    trajectory=[],
+                    error=f"{type(e).__name__}: {e}",
+                )
+            results.append(result)
+            if on_result is not None:
+                on_result(result)
 
     return RunResults(
         domain=domain,
         agent_llm=agent_llm,
         user_llm=user_llm,
         judge_llm=judge_llm,
-        reward_mode=reward_mode,
+        k=k,
         results=results,
     )
+
+
+def save_run_dir(results: RunResults, out_dir: Union[str, Path]) -> Path:
+    """Write a structured run directory.
+
+    Layout::
+
+        <out_dir>/summary.json              # metadata + metrics + per-task pass^k (no trajectories)
+        <out_dir>/<task_id>/trial_<i>.json  # full TaskResult (trajectory + reward_info) per trial
+    """
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    by_task = results.rewards_by_task()
+    per_task = []
+    errors_by_task: dict[str, list[str]] = {}
+    for r in results.results:
+        if r.error:
+            errors_by_task.setdefault(r.task_id, []).append(r.error)
+    for tid, rewards in by_task.items():
+        c = sum(1 for x in rewards if x >= 1.0)
+        n = len(rewards)
+        per_task.append({
+            "task_id": tid,
+            "rewards": rewards,
+            "passes": c,
+            "trials": n,
+            "pass^k": {str(j): _pass_hat_k(n, c, j) for j in range(1, results.k + 1)},
+            "errors": errors_by_task.get(tid, []),
+        })
+
+    summary = {
+        "domain": results.domain,
+        "agent_llm": results.agent_llm,
+        "user_llm": results.user_llm,
+        "judge_llm": results.judge_llm,
+        "k": results.k,
+        "num_tasks": len(by_task),
+        "num_runs": len(results.results),
+        "avg_reward": results.avg_reward,
+        "avg_pass^k": {str(j): v for j, v in results.avg_pass_hat_k().items()},
+        "per_task": per_task,
+    }
+    dump_file(out / "summary.json", summary)
+
+    for r in results.results:
+        task_dir = out / r.task_id
+        task_dir.mkdir(parents=True, exist_ok=True)
+        dump_file(task_dir / f"trial_{r.trial}.json", r.model_dump())
+
+    return out
 
 
 def _make_user(task: Task, user_llm: str):
     from eops_gym.user.user_simulator import UserSimulator
 
-    return UserSimulator(task.user_scenario, llm=user_llm)
+    return UserSimulator(task.scenario, llm=user_llm)
