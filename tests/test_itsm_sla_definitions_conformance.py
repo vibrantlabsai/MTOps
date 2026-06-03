@@ -23,7 +23,7 @@ from eops_gym.domains.itsm.data_model import ItsmDB
 from eops_gym.domains.itsm.tools._base import ItsmToolsBase
 from eops_gym.domains.itsm.tools.sla_definitions import SLADefinitionToolsMixin
 
-SEED_JSON = Path(__file__).resolve().parents[1] / "data" / "itsm" / "seeds" / "seed_main.json"
+SEED_JSON = Path(__file__).resolve().parents[1] / "data" / "itsm" / "db.json"
 
 
 class T(SLADefinitionToolsMixin, ItsmToolsBase):

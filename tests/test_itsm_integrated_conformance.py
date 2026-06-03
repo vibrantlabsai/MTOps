@@ -24,7 +24,7 @@ from itsm_oracle import MCPOracle, diff_db, oracle_available
 from eops_gym.domains.itsm.data_model import ItsmDB
 from eops_gym.domains.itsm.tools import ItsmTools
 
-SEED = Path(__file__).resolve().parents[1] / "data" / "itsm" / "seeds" / "seed_main.json"
+SEED = Path(__file__).resolve().parents[1] / "data" / "itsm" / "db.json"
 TESTDIR = Path(__file__).parent
 # static_token is randomized by the MCP (Python secrets); we generate it deterministically, so
 # it is irreducibly different vs the oracle and excluded from the integrated diff.

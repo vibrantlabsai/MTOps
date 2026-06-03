@@ -26,7 +26,7 @@ from itsm_oracle import MCPOracle, diff_db, oracle_available
 from eops_gym.domains.itsm.data_model import ItsmDB
 from eops_gym.domains.itsm.tools.sla_metrics import SLAMetricToolsMixin
 
-SEED_JSON = Path(__file__).resolve().parents[1] / "data" / "itsm" / "seeds" / "seed_main.json"
+SEED_JSON = Path(__file__).resolve().parents[1] / "data" / "itsm" / "db.json"
 
 
 class T(SLAMetricToolsMixin):

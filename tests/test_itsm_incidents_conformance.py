@@ -23,7 +23,7 @@ from itsm_oracle import CANONICAL_SEED, MCPOracle, diff_db, oracle_available
 from eops_gym.domains.itsm.data_model import ItsmDB
 from eops_gym.domains.itsm.tools import ItsmTools
 
-SEED_JSON = Path(__file__).resolve().parents[1] / "data" / "itsm" / "seeds" / "seed_main.json"
+SEED_JSON = Path(__file__).resolve().parents[1] / "data" / "itsm" / "db.json"
 
 # A scenario of WRITE calls exercising create (defaults, channel->contact_type, FKs, id/number),
 # update, and the child-incident relationship tools. Order matters (sequential id generation).

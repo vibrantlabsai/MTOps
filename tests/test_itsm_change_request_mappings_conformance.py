@@ -24,7 +24,7 @@ from eops_gym.domains.itsm.tools.change_request_mappings import (
     ChangeRequestMappingToolsMixin,
 )
 
-SEED_JSON = Path(__file__).resolve().parents[1] / "data" / "itsm" / "seeds" / "seed_main.json"
+SEED_JSON = Path(__file__).resolve().parents[1] / "data" / "itsm" / "db.json"
 
 
 class T(ChangeRequestMappingToolsMixin):

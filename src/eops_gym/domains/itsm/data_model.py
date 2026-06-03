@@ -2,8 +2,8 @@
 
 Every model mirrors a table in the authoritative DDL (``docs/itsm_schema.sql``, dumped from the
 live MCP). Field names/order match the DDL exactly; ``extra="forbid"`` makes loading a ported
-``db.json`` an exact-schema gate. Enum-like columns are typed ``str`` (not ``Literal``) so both
-seeds load; allowed values are documented in ``docs/itsm_build_spec.md``.
+``db.json`` an exact-schema gate. Enum-like columns are typed ``str`` (not ``Literal``) so the
+seed db loads; allowed values are documented in ``docs/itsm_build_spec.md``.
 
 Per-table timestamp column names intentionally differ (``incident`` uses created_at/updated_at;
 most others created_on/updated_on) — preserved verbatim for DB-hash fidelity.
