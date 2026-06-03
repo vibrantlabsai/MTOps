@@ -45,7 +45,7 @@ class ScriptedUser:
     """Responds to the agent's greeting with the task description, then stops."""
 
     def __init__(self, task):
-        self.desc = task.user_scenario.task_description
+        self.desc = task.scenario.task_description
 
     def get_init_state(self):
         return {"opened": False}
@@ -62,12 +62,9 @@ class ScriptedUser:
 
 
 def _env_ctor_for(task):
-    cfg = task.environment or {}
-
     def ctor(db_delta=None):
         return itsm_env.get_environment(
-            db_delta=db_delta, seed=cfg.get("seed", "seed_main"),
-            acting_user_id=cfg.get("acting_user_id"),
+            db_delta=db_delta, acting_user_id=task.acting_user_id,
         )
 
     return ctor
@@ -94,6 +91,8 @@ def test_e2e_gold_trajectory_scores_full_reward(task, mocker):
     assert len(run.agent_tool_calls) == len(task.evaluation_criteria.actions)
 
     reward_info = evaluate_task(ctor, task, trajectory=run.trajectory, final_env=env)
-    assert reward_info.db_check is not None and reward_info.db_check.db_match, \
-        f"{task.id}: final DB did not match gold"
+    # Tasks with gold actions are DB-matched; NL-only tasks gate on the (mocked-all-met) judge.
+    if task.evaluation_criteria.actions:
+        assert reward_info.db_check is not None and reward_info.db_check.db_match, \
+            f"{task.id}: final DB did not match gold"
     assert reward_info.reward == 1.0, f"{task.id}: reward {reward_info.reward} != 1.0"

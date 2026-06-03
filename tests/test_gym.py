@@ -1,8 +1,8 @@
 """Gym interface tests (offline — mocked user LLM, no real API call, no oracle).
 
 Verifies the Gymnasium reset/step contract, action parsing, and that driving a task's gold
-actions through the gym yields a sparse terminal reward of 1.0 (verifier mode). Skipped if
-``gymnasium`` is not installed.
+actions through the gym yields a sparse terminal reward of 1.0 (gold-action DB-match). Skipped
+if ``gymnasium`` is not installed.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from eops_gym.domains.itsm import environment as itsm_env
 from eops_gym.gym.gym_agent import AgentGymEnv, parse_action_string
 from eops_gym.user.base import STOP
 
-TASK_ID = "itsm_register_ci_and_incident_001"
+TASK_ID = "itsm_restore_retired_ci_001"
 
 
 def test_parse_action_string():
@@ -53,7 +53,7 @@ def test_agent_gym_episode(mocker):
         return_value=AssistantMessage(content="Please go ahead and take care of it."),
     )
     task = next(t for t in itsm_env.get_tasks() if t.id == TASK_ID)
-    env = AgentGymEnv(domain="itsm", task_id=TASK_ID, max_steps=50, reward_mode="verifier")
+    env = AgentGymEnv(domain="itsm", task_id=TASK_ID, max_steps=50)
 
     obs, info = env.reset()
     assert isinstance(obs, str) and isinstance(info, dict)
@@ -69,11 +69,11 @@ def test_agent_gym_episode(mocker):
         assert isinstance(terminated, bool) and isinstance(truncated, bool)
         assert reward == 0.0 and terminated is False
 
-    # End the episode — gold actions satisfy the verifiers, so terminal reward is 1.0.
+    # End the episode — gold actions reproduce the gold DB state, so terminal reward is 1.0.
     obs, reward, terminated, truncated, info = env.step("done()")
     assert terminated is True and truncated is False
     assert reward == 1.0, f"expected terminal reward 1.0, got {reward}"
-    assert info["reward_info"]["verifier_check"]["all_passed"] is True
+    assert info["reward_info"]["db_check"]["db_match"] is True
     env.close()
 
 

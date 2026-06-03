@@ -18,13 +18,10 @@ TASKS = itsm_env.get_tasks()
 
 
 def _env_ctor_for(task):
-    cfg = task.environment or {}
-
     def ctor(db_delta=None):
         return itsm_env.get_environment(
             db_delta=db_delta,
-            seed=cfg.get("seed", "seed_main"),
-            acting_user_id=cfg.get("acting_user_id"),
+            acting_user_id=task.acting_user_id,
         )
 
     return ctor
@@ -40,7 +37,8 @@ def test_gold_actions_replay_and_db_match(task):
         ToolCall(name=a.name, arguments=a.arguments, requestor="assistant")
         for a in task.evaluation_criteria.actions
     ]
-    assert gold_calls, f"{task.id}: no gold actions"
+    if not gold_calls:
+        pytest.skip(f"{task.id}: NL-only task (no gold actions to DB-match)")
     # Predicted == gold trajectory => DB-match must be perfect (validates replay + determinism).
     db_check = calculate_db_reward(_env_ctor_for(task), task, agent_tool_calls=gold_calls)
     assert db_check.db_match, f"{task.id}: gold-action replay did not match the gold DB state"
@@ -49,6 +47,8 @@ def test_gold_actions_replay_and_db_match(task):
 
 @pytest.mark.parametrize("task", TASKS, ids=[t.id for t in TASKS])
 def test_gold_actions_are_deterministic(task):
+    if not task.evaluation_criteria.actions:
+        pytest.skip(f"{task.id}: NL-only task (no gold actions)")
     ctor = _env_ctor_for(task)
 
     def replay():

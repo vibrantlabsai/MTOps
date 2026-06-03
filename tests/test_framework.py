@@ -184,12 +184,10 @@ def test_evaluator_multiplicative_reward(mocker):
     from eops_gym.evaluator.evaluator import evaluate_task
 
     task = itsm_env.get_tasks()[0]
-    cfg = task.environment or {}
 
     def ctor(db_delta=None):
         return itsm_env.get_environment(
-            db_delta=db_delta, seed=cfg.get("seed", "seed_main"),
-            acting_user_id=cfg.get("acting_user_id"),
+            db_delta=db_delta, acting_user_id=task.acting_user_id,
         )
 
     final_env = ctor(db_delta=task.initial_state_delta)
@@ -201,18 +199,12 @@ def test_evaluator_multiplicative_reward(mocker):
                    for a in task.evaluation_criteria.nl_assertions]
         return AssistantMessage(content=json.dumps({"results": results}))
 
-    # db_hash mode: reward = DB-match x NL.  NL all-met -> reward 1.0
+    # reward = DB-match x NL.  NL all-met -> reward 1.0
     mocker.patch("eops_gym.evaluator.evaluator_nl.generate", return_value=judge(True))
-    r = evaluate_task(ctor, task, trajectory=[], final_env=final_env, reward_mode="db_hash")
+    r = evaluate_task(ctor, task, trajectory=[], final_env=final_env)
     assert r.db_check.db_match and r.reward == 1.0
 
     # NL not-met -> DB(1) * NL(0) = 0
     mocker.patch("eops_gym.evaluator.evaluator_nl.generate", return_value=judge(False))
-    r = evaluate_task(ctor, task, trajectory=[], final_env=final_env, reward_mode="db_hash")
+    r = evaluate_task(ctor, task, trajectory=[], final_env=final_env)
     assert r.db_check.db_match and r.reward == 0.0
-
-    # verifier mode: reward gates on the SQL verifiers, NOT on NL (NL is informational).
-    mocker.patch("eops_gym.evaluator.evaluator_nl.generate", return_value=judge(False))
-    r = evaluate_task(ctor, task, trajectory=[], final_env=final_env, reward_mode="verifier")
-    assert r.verifier_check is not None and r.verifier_check.all_passed
-    assert r.reward == 1.0  # NL not-met does not lower the reward in verifier mode
