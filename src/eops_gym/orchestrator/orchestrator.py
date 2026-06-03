@@ -1,6 +1,6 @@
 """Minimal run loop: agent <-> user simulator <-> environment.
 
-Trimmed mirror of tau2's orchestrator. Enough to drive one task end-to-end and
+Enough to drive one task end-to-end and
 produce a trajectory (plus the agent's tool calls) for the evaluator. The agent
 is any object exposing ``generate_next_message(message, state) -> (AssistantMessage, state)``
 and ``get_init_state()`` — a real litellm agent is item 1's concern.
@@ -8,9 +8,19 @@ and ``get_init_state()`` — a real litellm agent is item 1's concern.
 
 from typing import Protocol
 
-from eops_gym.data_model.message import AssistantMessage, Message, ToolCall
+from eops_gym.data_model.message import AssistantMessage, Message, MultiToolMessage, ToolCall
 from eops_gym.environment.environment import Environment
+from eops_gym.user.base import STOP
 from eops_gym.user.user_simulator import UserSimulator
+
+#: Fixed greeting the agent opens every conversation with (no LLM call).
+DEFAULT_FIRST_AGENT_MESSAGE = "Hi! How can I help you today?"
+
+
+def _is_agent_stop(message: Message) -> bool:
+    """The agent can end the episode by emitting the STOP token (e.g. the gym `done()` action)."""
+    content = getattr(message, "content", None)
+    return bool(content and STOP in content)
 
 
 class Agent(Protocol):
@@ -45,30 +55,45 @@ class Orchestrator:
         agent_state = self.agent.get_init_state()
         user_state = self.user.get_init_state()
 
-        # The user opens the conversation.
-        user_msg, user_state = self.user.generate_next_message(None, user_state)
-        trajectory.append(user_msg)
+        # The agent opens with a fixed greeting (no LLM call). This guarantees
+        # the user simulator always has a non-system message to respond to — required by
+        # providers like Anthropic, which reject a system-only message list.
+        last_agent_msg: Message = AssistantMessage(content=DEFAULT_FIRST_AGENT_MESSAGE)
+        trajectory.append(last_agent_msg)
 
-        stopped = self.user.is_stop(user_msg)
-        last_to_agent: Message = user_msg
+        stopped = False
         steps = 0
 
-        while not stopped and steps < self.max_steps:
+        while steps < self.max_steps:
             steps += 1
-            agent_msg, agent_state = self.agent.generate_next_message(last_to_agent, agent_state)
-            trajectory.append(agent_msg)
+            # User responds to the agent's last message; may end the conversation.
+            user_msg, user_state = self.user.generate_next_message(last_agent_msg, user_state)
+            trajectory.append(user_msg)
+            if self.user.is_stop(user_msg):
+                stopped = True
+                break
 
-            if agent_msg.is_tool_call():
+            # Agent replies; drain any tool calls until it produces a text reply for the user.
+            agent_msg, agent_state = self.agent.generate_next_message(user_msg, agent_state)
+            trajectory.append(agent_msg)
+            while agent_msg.is_tool_call() and steps < self.max_steps:
+                steps += 1
+                tool_msgs = []
                 for tc in agent_msg.tool_calls or []:
                     agent_tool_calls.append(tc)
-                    tool_msg = self.environment.get_response(tc)
-                    trajectory.append(tool_msg)
-                last_to_agent = trajectory[-1]
-                continue  # let the agent observe tool results before the user replies
+                    tm = self.environment.get_response(tc)
+                    trajectory.append(tm)
+                    tool_msgs.append(tm)
+                # Hand the agent every tool result: a single ToolMessage for one call, or a
+                # MultiToolMessage for parallel calls (so no result is dropped from its state).
+                agent_input = tool_msgs[0] if len(tool_msgs) == 1 else MultiToolMessage(tool_messages=tool_msgs)
+                agent_msg, agent_state = self.agent.generate_next_message(agent_input, agent_state)
+                trajectory.append(agent_msg)
+            last_agent_msg = agent_msg
 
-            user_msg, user_state = self.user.generate_next_message(agent_msg, user_state)
-            trajectory.append(user_msg)
-            last_to_agent = user_msg
-            stopped = self.user.is_stop(user_msg)
+            # The agent may end the conversation itself (e.g. the gym policy calls done()).
+            if _is_agent_stop(agent_msg):
+                stopped = True
+                break
 
         return RunResult(trajectory=trajectory, agent_tool_calls=agent_tool_calls, stopped=stopped)

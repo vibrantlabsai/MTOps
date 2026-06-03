@@ -30,26 +30,31 @@ def evaluate_task(
     agent_tool_calls: Optional[list[ToolCall]] = None,
     nl_llm: Optional[str] = None,
     nl_llm_args: Optional[dict] = None,
+    skip_nl_assertions: bool = False,
 ) -> RewardInfo:
-    """Score a completed run against the task's evaluation criteria."""
-    criteria = task.evaluation_criteria
-    reward = 1.0
+    """Score a completed run against the task's evaluation criteria.
 
+    The reward is the product of the two criteria the task may define: gold-action
+    full-DB-hash match and the NL-assertion judge. A task passes (reward 1.0) only if
+    every defined criterion passes.
+    """
+    criteria = task.evaluation_criteria
+
+    # gold-action full-DB-hash (computed whenever the task defines gold actions)
     db_check: Optional[DBCheck] = None
     if criteria.actions:
         db_check = calculate_db_reward(
-            environment_constructor,
-            task,
-            final_env=final_env,
-            agent_tool_calls=agent_tool_calls,
+            environment_constructor, task, final_env=final_env, agent_tool_calls=agent_tool_calls
         )
-        reward *= db_check.reward
 
+    # NL-assertion judge. Skipped for RL/gym reward, where the judge LLM is unnecessary
+    # overhead/non-determinism.
     nl_check: Optional[NLCheck] = None
-    if criteria.nl_assertions:
+    if criteria.nl_assertions and not skip_nl_assertions:
         nl_check = evaluate_nl_assertions(
             trajectory, criteria.nl_assertions, llm=nl_llm, llm_args=nl_llm_args
         )
-        reward *= nl_check.reward
+
+    reward = (db_check.reward if db_check else 1.0) * (nl_check.reward if nl_check else 1.0)
 
     return RewardInfo(reward=reward, db_check=db_check, nl_check=nl_check)

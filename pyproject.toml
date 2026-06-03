@@ -1,7 +1,7 @@
 [project]
 name = "eops-gym"
 version = "0.1.0"
-description = "EnterpriseOps Gym 2 — a tau2-style benchmark for enterprise operations agents"
+description = "EnterpriseOps Gym 2 — a benchmark for enterprise operations agents"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -13,6 +13,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-mock"]
 hf = ["datasets>=2.0"]
+gym = ["gymnasium>=0.29"]  # Gymnasium-compatible RL/training interface (eops_gym.gym)
 
 [project.scripts]
 eops = "eops_gym.cli:main"

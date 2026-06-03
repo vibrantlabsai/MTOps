@@ -2,8 +2,8 @@
 
 Computes the expected ("gold") DB by replaying the task's gold ``actions``
 through the real tools on a fresh seed+delta environment, then compares its hash
-to the run's final DB. tau2-style (``evaluator_env.py``), trimmed: no user DB,
-no env assertions, no message-history reconstruction.
+to the run's final DB. Trimmed: no user DB, no env assertions, no
+message-history reconstruction.
 """
 
 from typing import Callable, Optional

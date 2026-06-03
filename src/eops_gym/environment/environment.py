@@ -1,7 +1,6 @@
 """Environment — wraps a domain toolkit/DB and dispatches tool calls.
 
-Trimmed mirror of tau2's ``environment/environment.py``: no user-side DB, no
-solo mode, no env assertions. Just enough to run tool calls during a task and
+Trimmed: no user-side DB, no solo mode, no env assertions. Just enough to run tool calls during a task and
 to be reconstructed as the "gold" environment during evaluation.
 """
 
@@ -20,8 +19,8 @@ class Environment:
     def get_policy(self) -> str:
         return self.policy
 
-    def get_tool_schemas(self) -> list[dict]:
-        return self.tools.get_tool_schemas()
+    def get_tool_schemas(self, include: Optional[list[str]] = None) -> list[dict]:
+        return self.tools.get_tool_schemas(include=include)
 
     def make_tool_call(self, tool_name: str, **kwargs):
         """Execute a tool call directly (used for gold-action replay)."""

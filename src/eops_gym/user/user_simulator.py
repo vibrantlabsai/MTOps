@@ -1,14 +1,14 @@
 """User simulator (item 4).
 
 A stateless LLM that role-plays a human user from a (persona, task_description)
-scenario. Mirrors tau2's ``user/user_simulator.py``.
+scenario.
 """
 
 from typing import Optional
 
 from eops_gym.config import DEFAULT_LLM_USER, DEFAULT_LLM_USER_ARGS
 from eops_gym.data_model.message import AssistantMessage, SystemMessage, UserMessage
-from eops_gym.data_model.tasks import UserScenario
+from eops_gym.data_model.tasks import Scenario
 from eops_gym.user.base import STOP, UserState
 from eops_gym.utils.llm_utils import generate
 
@@ -19,7 +19,8 @@ call tools, never act as support staff.
 
 Guidelines:
 - Reveal information progressively: share details only when the agent asks for them.
-- Do not invent facts (ids, emails, numbers) that are not in your scenario.
+- Do not invent facts (ids, emails, numbers). Only use the facts in <known_info> below;
+  if asked for something not listed there, say you don't have it handy.
 - Keep messages short and natural, the way a real person would talk.
 - When your goal has been accomplished (or the agent makes clear it cannot be),
   end the conversation by replying with exactly: {stop_token}
@@ -28,6 +29,11 @@ Guidelines:
 Name: {name}
 Personality: {personality}
 </persona>
+
+<known_info>
+Facts you know and can share when the agent asks for them (don't volunteer them all at once):
+{known_info}
+</known_info>
 
 <scenario>
 {task_description}
@@ -38,7 +44,7 @@ Personality: {personality}
 class UserSimulator:
     def __init__(
         self,
-        scenario: UserScenario,
+        scenario: Scenario,
         llm: Optional[str] = None,
         llm_args: Optional[dict] = None,
     ):
@@ -48,10 +54,13 @@ class UserSimulator:
 
     @property
     def system_prompt(self) -> str:
+        known = self.scenario.persona.known_info
+        known_info = "\n".join(f"- {k}: {v}" for k, v in known.items()) or "- (nothing in particular)"
         return SYSTEM_PROMPT.format(
             stop_token=STOP,
             name=self.scenario.persona.name,
             personality=self.scenario.persona.personality,
+            known_info=known_info,
             task_description=self.scenario.task_description,
         )
 

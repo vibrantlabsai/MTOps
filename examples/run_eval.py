@@ -20,8 +20,8 @@ JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "gpt-4o-mini")
 def main() -> None:
     task = get_tasks()[0]
     print(f"=== Task: {task.id} ===")
-    print(f"Persona : {task.user_scenario.persona.name} — {task.user_scenario.persona.personality}")
-    print(f"Goal    : {task.user_scenario.task_description}\n")
+    print(f"Persona : {task.scenario.persona.name} — {task.scenario.persona.personality}")
+    print(f"Goal    : {task.scenario.task_description}\n")
 
     result = run_task(
         "itsm",

@@ -1,6 +1,6 @@
 """Deterministic hashing of DB state for evaluation.
 
-Mirrors tau2's ``get_dict_hash`` / ``get_pydantic_hash``: serialize to canonical
+Serialize to canonical
 JSON (sorted keys, str fallback for non-JSON types) and SHA-256 it. Two DBs that
 serialize to the same canonical JSON hash equal, regardless of dict ordering.
 """

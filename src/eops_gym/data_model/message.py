@@ -1,4 +1,4 @@
-"""Conversation message types. Trimmed mirror of tau2's ``data_model/message.py``."""
+"""Conversation message types."""
 
 import json
 from typing import Literal, Optional
@@ -58,6 +58,18 @@ class ToolMessage(BaseModel):
 
 
 Message = SystemMessage | AssistantMessage | UserMessage | ToolMessage
+
+
+class MultiToolMessage(BaseModel):
+    """A batch of tool responses handed to the agent in one turn.
+
+    Transient agent-input wrapper for an assistant message that made several tool calls: the
+    agent expands it into the individual ToolMessages in its state, so it never reaches the LLM
+    or the rendered trajectory. Deliberately kept out of the ``Message`` union for that reason.
+    """
+
+    role: Literal["tool"] = "tool"
+    tool_messages: list[ToolMessage] = Field(default_factory=list)
 
 
 def render_trajectory(trajectory: list[Message]) -> str:

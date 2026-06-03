@@ -1,119 +1,196 @@
 ## EnterpriseOps Gym 2
 
-EnterpriseOps Gym 2 is a framework for evaluating the performance of agents in enterprise operations tasks in realistic multi-turn settings. It provides a set of domains, each of which represents a specific area of enterprise operations.
+EnterpriseOps Gym 2 is a benchmark for evaluating LLM agents on stateful, multi-step
+enterprise-operations workflows. It is a port of ServiceNow's
+[EnterpriseOps-Gym](https://github.com/ServiceNow/EnterpriseOps-Gym) into an in-process
+architecture: an agent talks to a simulated user, operates on an in-memory domain database
+through typed tools, and is scored against gold criteria.
 
 Each domain specifies:
 
-- A policy that the agent must follow
-- A set of tools that the agent can use
-- A set of tasks to evaluate the agent's performance
+- A **policy** the agent must follow (`data/<domain>/policy.md`)
+- A set of **tools** the agent can use (in-memory, pydantic-typed)
+- A set of **tasks** with evaluation criteria
 
 
+## Architecture
 
-## Domains
+A run drives a turn-based loop — **user simulator ↔ agent ↔ environment (tools + DB)** — then
+scores the final database state. The agent and user simulator are LLMs (via litellm); the
+environment and evaluator are pure in-memory Python (no Docker, no SQL server at runtime).
 
-1. ITSM: IT Service Management
+```mermaid
+flowchart TD
+    POL["policy.md"] --> AGENT
+    SEED[("seed db.json<br/>+ task delta")] --> ENV
 
-## Running evals
+    subgraph LOOP["Conversation loop — Orchestrator (agent greets first)"]
+        direction LR
+        USER["User Simulator<br/>persona + task description"]
+        AGENT["LLM Agent<br/>policy + tool schemas"]
+        USER <-->|messages| AGENT
+    end
 
-### Setup
+    AGENT -->|tool calls| ENV["Environment<br/>ToolKit · 93 typed tools<br/>in-memory ItsmDB"]
+    ENV -->|tool results| AGENT
+    AGENT -.->|litellm| PROV(("LLM provider"))
+    USER -.->|litellm| PROV
 
-Requires Python 3.10+ (the code uses 3.10 syntax). Create a venv and install:
-
-```bash
-python3.13 -m venv .venv
-.venv/bin/python -m pip install -e ".[dev]"
+    ENV ==>|final DB state| EVAL["Evaluator"]
+    EVAL --> DBH["gold-action DB-hash"]
+    EVAL --> NL["NL-assertion judge"]
+    DBH --> REW(["reward"])
+    NL --> REW
 ```
 
-Put your provider credentials in a `.env` file at the repo root (it is gitignored):
+The original benchmark instead ran a Dockerized MCP server per domain (SQLite over HTTP). This
+port collapses all of that into the in-process pieces above; the Docker MCP is used only at
+build/test time as a fidelity oracle (see "Provenance" / "Tests").
+
+## Setup
+
+Requires Python 3.11+ and (recommended) [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv venv --python 3.12 .venv
+uv pip install -e ".[dev]"
+```
+
+Put provider credentials in a `.env` at the repo root (gitignored) to run live evals:
 
 ```bash
 OPENAI_API_KEY=sk-...
-# optional, for other providers
-AWS_BEARER_TOKEN_BEDROCK=...
-AWS_REGION=us-east-1
-FIREWORKS_AI_API_KEY=...
-LITELLM_DROP_PARAMS=true
+# any litellm-supported provider works (gpt-4o, anthropic/claude-..., bedrock/..., etc.)
 ```
 
-Models are resolved by [litellm](https://docs.litellm.ai/), so any provider string works
-(`gpt-4o`, `bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0`, `fireworks_ai/...`, etc.).
+Models are resolved by [litellm](https://docs.litellm.ai/), so any provider string works.
 
-### The `eops` CLI
-
-Installing the package puts an `eops` command on your path (tau2-style):
+## The `eops` CLI
 
 ```bash
-set -a && . ./.env && set +a            # load credentials into the environment
+set -a && . ./.env && set +a              # load credentials
 
-eops run    --domain itsm               # run the eval over the domain's tasks
-eops tasks  --domain itsm               # list the tasks in a domain
-eops domain itsm                        # print the domain policy
+eops run    --domain itsm                 # run the eval over the domain's tasks
+eops tasks  --domain itsm                 # list the tasks (persona, goal, criteria)
+eops domain itsm                          # print the domain policy
 ```
 
-`eops run` ties together a litellm tool-calling agent, the user simulator, the environment,
-and the evaluator (DB-based match + NL-assertion judge). Useful flags:
+`eops run` ties together a litellm tool-calling agent, the user simulator, the environment, and
+the evaluator. Useful flags:
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--domain`, `-d` | `itsm` | Domain to evaluate |
-| `--agent-llm` | `gpt-4o` | LLM for the agent |
+| `--agent-llm` | `gpt-4o` | LLM for the agent (must support tool calling) |
 | `--user-llm` | `gpt-4o-mini` | LLM for the user simulator |
 | `--judge-llm` | `gpt-4o-mini` | LLM for the NL-assertion judge |
 | `--task-ids` | all | Run only these task ids |
 | `--num-tasks` | all | Run at most N tasks |
 | `--max-steps` | `12` | Max conversation steps per task |
-| `--save-to` | — | Write full results (trajectories + rewards) to a JSON file |
+| `--save-to` | — | Write full results (trajectories + rewards) to JSON |
 | `--verbose`, `-v` | off | Print each task's conversation |
-
-Example — run one task, show the conversation, save the trajectories:
 
 ```bash
 eops run --domain itsm --num-tasks 1 --verbose --save-to results.json
 ```
 
-```
-=== itsm_workload_rebalance_001 ===
-  ...conversation...
-  DB match : True
-  NL [PASS] The agent confirmed the incident's priority was changed to moderate.
-  NL [PASS] The agent reassigned the incident to Priya Sharma.
-  reward   : 1.0  (stopped=True, tool_calls=3)
+**Scoring**: reward = gold-action full-DB-hash match × NL assertions. A task passes (reward 1.0)
+only if the agent's end-state matches the gold replay of the task's `actions` **and** every NL
+assertion is met. Either criterion may be omitted by a task, in which case it doesn't gate.
 
-=== Summary ===
-domain=itsm  agent=gpt-4o  user=gpt-4o-mini  judge=gpt-4o-mini
-tasks=1  avg_reward=1.000
+### Running with a specific provider
+
+Set credentials in `.env` (see `.env.example`), `set -a && . ./.env && set +a`, then pick models
+with the `--*-llm` flags. The defaults are OpenAI (`gpt-4o`/`gpt-4o-mini`), so for any other
+provider you must pass the flags explicitly.
+
+```bash
+# OpenAI (default models — no flags needed)
+#   .env: OPENAI_API_KEY=sk-...
+eops run --domain itsm --num-tasks 1 -v
+
+# Anthropic — standard API key
+#   .env: ANTHROPIC_API_KEY=sk-ant-api03-...
+eops run --domain itsm --num-tasks 1 -v \
+    --agent-llm anthropic/claude-sonnet-4-5 \
+    --user-llm  anthropic/claude-haiku-4-5 \
+    --judge-llm anthropic/claude-haiku-4-5
+
 ```
 
-The total reward is multiplicative over the criteria a task defines, so a run passes only if
-every criterion passes (DB-match catches wrong identifiers that the NL judge may overlook).
 
 ### Programmatic API
 
-`examples/run_eval.py` does the same thing from Python via `eops_gym.run.run_task`:
+```python
+from eops_gym.domains.itsm.environment import get_tasks
+from eops_gym.run import run_task
 
-```bash
-set -a && . ./.env && set +a
-python examples/run_eval.py             # override models with AGENT_MODEL / USER_MODEL / JUDGE_MODEL
+task = get_tasks()[0]
+result = run_task("itsm", task, agent_llm="gpt-4o")
+print(result.reward)
 ```
 
-### Tasks
+`examples/run_eval.py` runs one task end to end (override models via `AGENT_MODEL` / `USER_MODEL`
+/ `JUDGE_MODEL`).
 
-Tasks live in `data/itsm/tasks.json`. Each task specifies a user scenario (persona +
-task description), an `initial_state_delta` applied over the seed `data/itsm/db.json`
-(`set` / `create` / `delete`), and evaluation criteria (gold `actions` for DB-match and
-`nl_assertions` for the LLM judge). Load them in code with:
+## Gym interface (RL / training)
+
+A **Gymnasium-compatible** wrapper (`eops_gym.gym`) exposes the eval as a standard `reset`/`step`
+RL loop — the learner policy plays the **agent** against the user simulator, and reward is the
+(sparse, terminal) evaluator score. Requires the optional extra:
+
+```bash
+uv pip install -e ".[gym]"
+```
 
 ```python
-from eops_gym.domains.itsm.environment import get_tasks, get_environment
-task = get_tasks()[0]
-env = get_environment(db_delta=task.initial_state_delta)
+import gymnasium as gym
+from eops_gym.gym import register_gym_agent, EOPS_ENV_ID
+
+register_gym_agent()
+env = gym.make(EOPS_ENV_ID, domain="itsm", task_id="itsm_register_ci_and_incident_001")
+
+obs, info = env.reset()      # obs: conversation string; info: {task_id, tools, policy}
+obs, reward, terminated, truncated, info = env.step(
+    'register_configuration_item(name="...", owner_id="USER_004", serial_number="...", status="in_use", cost=78000)')
+# ...take more actions...
+obs, reward, terminated, truncated, info = env.step("done()")   # ends the episode
 ```
 
-### Unit tests
+- **action** (string): a natural-language message, a tool call (functional `name(arg='x')` or
+  JSON `{"name":..,"arguments":..}`), or `done()` to end the episode.
+- **observation** (string): the conversation so far (`role: content` lines).
+- **reward**: **sparse / terminal** — `0.0` on every step, then the task's gold-action DB-match
+  score (0/1) on the terminal step. Suited to outcome-reward RL (GRPO / REINFORCE / rejection sampling).
+- The **user simulator runs automatically** (needs a `user_llm`); the policy only acts as the
+  agent. Under the hood the real `Orchestrator` runs in a background thread and the agent blocks
+  for each `step(action)`. Reward skips the NL judge for speed/determinism.
 
-The component tests run without any API key (LLM calls are mocked):
+## How a task is defined
 
-```bash
-.venv/bin/python -m pytest -q
-```
+Tasks are loaded by `get_tasks()` from two optional, merged sources: `data/itsm/tasks.json`
+(a JSON list) and a `data/itsm/tasks/` directory (each `*.json` holds one task or a list of
+tasks). Duplicate ids across the sources are rejected. Each task specifies:
+
+- a **scenario** — a persona (`name`, `personality`, and a free-form **`known_info`** dict) plus
+  a natural-language task description, all fed to the user simulator. `known_info` holds facts the
+  user knows and reveals when asked (their `user_id`, email, an incident number, …) so the
+  simulator never invents ids. Its `user_id` also becomes the **authenticated caller** for the
+  tools (org scoping + default attribution: requested_by on changes, opened_by on problems,
+  notification sender) — exposed as the derived `Task.acting_user_id`,
+- an optional **initial_state_delta** applied over `db.json` (`set` / `create` / `delete`),
+- **evaluation_criteria**: two signals —
+  - **actions** — a correct gold tool-call sequence, replayed to compute a target DB state for
+    hash matching.
+  - **nl_assertions** — natural-language outcomes graded by an LLM judge.
+
+## Evaluation
+
+The reward is the product of the two criteria a task defines; all defined checks gate.
+
+- **DB-match** (`evaluator/evaluator_env.py`): replays the task's gold `actions` on a fresh
+  seed+delta env and compares its DB hash to the run's final DB. Tools generate IDs/timestamps
+  deterministically so gold replay is reproducible.
+- **NL assertions** (`evaluator/evaluator_nl.py`): an LLM judge grades each assertion against the
+  conversation.
+

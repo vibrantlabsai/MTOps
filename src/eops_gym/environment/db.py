@@ -1,4 +1,4 @@
-"""Domain database base class. Mirrors tau2's ``environment/db.py``."""
+"""Domain database base class."""
 
 from typing import Any
 

@@ -1,4 +1,4 @@
-"""Toolkit base. Trimmed mirror of tau2's ``environment/toolkit.py``.
+"""Toolkit base.
 
 A ToolKit owns a domain ``DB`` and exposes methods decorated with ``@is_tool``.
 Read tools query the DB; write tools mutate ``self.db`` in place. The evaluator
@@ -6,7 +6,6 @@ replays gold actions through these same tools, so behaviour is identical between
 a live run and gold-state computation.
 """
 
-import inspect
 from enum import Enum
 from typing import Any, Callable, Dict, Optional
 
@@ -71,26 +70,15 @@ class ToolKitBase(metaclass=ToolKitType):
             raise ValueError(f"Tool {tool_name!r} not found.")
         return self.tools[tool_name](**kwargs)
 
-    def get_tool_schemas(self) -> list[dict]:
-        """Minimal OpenAI-style schemas (param names from the signature).
+    def get_tool_schemas(self, include: Optional[list[str]] = None) -> list[dict]:
+        """Typed OpenAI tool schemas built from each tool's type hints + docstring.
 
-        Enough for wiring an agent later; full typing/docs are item 1's concern.
+        ``include`` optionally restricts to a subset of tool names (oracle-mode tool filtering).
         """
-        schemas = []
-        for name in self._tool_names:
-            sig = inspect.signature(getattr(self, name))
-            props = {p: {"type": "string"} for p in sig.parameters}
-            schemas.append(
-                {
-                    "type": "function",
-                    "function": {
-                        "name": name,
-                        "description": (getattr(self, name).__doc__ or "").strip(),
-                        "parameters": {"type": "object", "properties": props},
-                    },
-                }
-            )
-        return schemas
+        from eops_gym.environment.tool import build_tool_schema
+
+        names = self._tool_names if include is None else [n for n in self._tool_names if n in include]
+        return [build_tool_schema(getattr(self, name), name=name) for name in names]
 
     def get_db_hash(self) -> str:
         if self.db is None:

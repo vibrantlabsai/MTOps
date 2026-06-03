@@ -1,4 +1,4 @@
-"""User-simulator base types. Trimmed mirror of tau2's ``user/base.py``."""
+"""User-simulator base types."""
 
 from pydantic import BaseModel, Field
 

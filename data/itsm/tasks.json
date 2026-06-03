@@ -1,40 +1,27 @@
 [
   {
     "id": "itsm_workload_rebalance_001",
-    "user_scenario": {
+    "scenario": {
       "persona": {
-        "name": "Benjamin Carter",
-        "personality": "polite but in a hurry; non-technical; gives details only when asked"
+        "name": "Priya Sharma",
+        "personality": "a hands-on IT service manager who actively rebalances her team's workload and will take a stuck ticket over herself when an engineer is overloaded",
+        "known_info": {
+          "user_id": "USER_002",
+          "name": "Priya Sharma",
+          "email": "priya.sharma@techcorp.com",
+          "incident_number": "INC0000003"
+        }
       },
-      "task_description": "Your printer incident INC-000003 is stuck and you are blocked. Ask the agent to raise its priority to moderate and reassign it from Diego to Priya Sharma (USER_011), since Diego is overloaded. Confirm the change before ending."
+      "task_description": "Carlos is swamped right now and incident INC0000003 (the printer connectivity issue) is stuck and blocking the reporter. As the team's manager, take the ticket over yourself (reassign it to you, USER_002) and raise its priority to moderate so it gets proper attention. Confirm the change before ending."
     },
     "initial_state_delta": {
-      "incidents": {
+      "incident": {
         "INC_003": {
           "set": {
             "status": "in_progress",
-            "assignment_group": "GROUP_001"
+            "priority": "low",
+            "assigned_to": "USER_003"
           }
-        },
-        "INC_024": {
-          "create": {
-            "incident_id": "INC_024",
-            "number": "INC-000024",
-            "short_description": "Laptop will not boot",
-            "caller_id": "USER_034",
-            "assigned_to": "USER_059",
-            "assignment_group": "GROUP_008",
-            "status": "new",
-            "category": "hardware",
-            "impact": "medium",
-            "urgency": "high",
-            "priority": "high",
-            "created_at": "2024-02-16T11:15:00Z",
-            "org_id": "ORG_001"
-          }
-        },
-        "INC_017": {
-          "delete": true
         }
       }
     },
@@ -45,13 +32,84 @@
           "arguments": {
             "incident_id": "INC_003",
             "priority": "moderate",
-            "assigned_to": "USER_011"
+            "assigned_to": "USER_002"
           }
         }
       ],
       "nl_assertions": [
-        "The agent confirmed the incident's priority was changed to moderate.",
-        "The agent reassigned the incident to Priya Sharma."
+        "Incident INC0000003 has its priority raised to moderate.",
+        "Incident INC0000003 is reassigned to Priya Sharma (USER_002)."
+      ]
+    }
+  },
+  {
+    "id": "itsm_resume_on_hold_incident_notify_001",
+    "scenario": {
+      "persona": {
+        "name": "Carlos Rodriguez",
+        "personality": "A conscientious support engineer who clears his on-hold queue promptly and keeps callers informed.",
+        "known_info": {
+          "user_id": "USER_003",
+          "name": "Carlos Rodriguez",
+          "email": "carlos.rodriguez@techcorp.com",
+          "incident_number": "INC0000003"
+        }
+      },
+      "task_description": "Incident INC0000003 (the printer connectivity issue) has been sitting on hold waiting on a vendor part, which has now arrived. Please pick the work back up and move it forward, and let the person who reported it know that we've resumed working on it."
+    },
+    "initial_state_delta": {
+      "incident": {
+        "INC_003": {
+          "set": {
+            "status": "on_hold",
+            "on_hold_reason": "Awaiting replacement part from vendor"
+          }
+        }
+      }
+    },
+    "evaluation_criteria": {
+      "nl_assertions": [
+        "Incident INC0000003 (INC_003), previously on hold, is moved back to in_progress.",
+        "The caller Benjamin Chen is sent an update notification to his email that work has resumed."
+      ]
+    }
+  },
+  {
+    "id": "itsm_restore_retired_ci_001",
+    "scenario": {
+      "persona": {
+        "name": "Marcus Thompson",
+        "personality": "A detail-oriented IT asset administrator who keeps the CMDB accurate and fixes mistaken status changes quickly.",
+        "known_info": {
+          "user_id": "USER_001",
+          "name": "Marcus Thompson",
+          "email": "marcus.thompson@techcorp.com",
+          "configuration_item": "Kenji Workstation"
+        }
+      },
+      "task_description": "Kenji's workstation was retired in the asset records by mistake after a maintenance window — it's actually back on his desk and fully in service. Please correct the configuration item so its status reflects that it is in use again."
+    },
+    "initial_state_delta": {
+      "configuration_item": {
+        "CI_003": {
+          "set": {
+            "status": "retired"
+          }
+        }
+      }
+    },
+    "evaluation_criteria": {
+      "actions": [
+        {
+          "name": "update_configuration_item",
+          "arguments": {
+            "configuration_item_id": "CI_003",
+            "status": "in_use"
+          }
+        }
+      ],
+      "nl_assertions": [
+        "Configuration item CI_003 (Kenji Workstation), which had been retired, is corrected back to status in_use."
       ]
     }
   }
