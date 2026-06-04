@@ -1,10 +1,9 @@
 """Notification tools (6) — faithful port of the ITSM MCP's notification category.
 
 Covers notification search (by id/incident/email/type/status/date-range), the email- and
-incident-scoped finders, and send/update/delete write tools. Verified against the live MCP by
-the differential conformance test.
+incident-scoped finders, and send/update/delete write tools.
 
-Notable oracle behaviours mirrored here (confirmed empirically against the live server):
+Notable behaviours mirrored here (confirmed empirically against the original ServiceNow MCP):
   - ``send_notification`` defaults ``type`` to ``"other"`` and ``status`` to ``"queued"``;
     leaves ``subject``/``message`` NULL. It validates the incident exists, that the recipient
     email belongs to *some* user (global, not org-scoped), and refuses to send to the acting
@@ -18,7 +17,7 @@ Notable oracle behaviours mirrored here (confirmed empirically against the live 
     (rather than returning an empty list) when nothing matches.
   - ``delete_notifications`` is registered on the live server but has no wired router endpoint,
     so it returns an "API endpoint not found" error and never mutates state. We mirror that
-    exactly (raise; no DB mutation) to preserve byte-for-byte DB parity with the oracle.
+    exactly (raise; no DB mutation) to preserve byte-for-byte DB parity with the original MCP.
 """
 
 from __future__ import annotations

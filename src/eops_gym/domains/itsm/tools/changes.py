@@ -1,9 +1,8 @@
 """Change tools (5) — faithful port of the ITSM MCP's change category.
 
-Covers change-request CRUD/search and assignment lookups. Verified against the live MCP by
-the differential conformance test (``tests/test_itsm_changes_conformance.py``).
+Covers change-request CRUD/search and assignment lookups.
 
-Behaviour notes confirmed against the oracle:
+Behaviour notes confirmed against the original ServiceNow MCP:
 - ``create_change`` derives ``requested_by`` and ``org_id`` from the acting (authenticated)
   user; it is not a tool parameter on create.
 - ``change_id`` is sequential over existing change_ids (``CHG_<maxseq+1:03d>``) while the human

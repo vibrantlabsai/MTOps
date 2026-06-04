@@ -3,7 +3,6 @@
 Covers incident-template create / get-by-name / list / update. The MCP nests the scalar
 template fields inside a ``change_request_values`` JSON object on input (and in its read
 returns); internally each scalar maps to a column on the flat ``incident_template`` row.
-Verified against the live MCP by the differential conformance test.
 """
 
 from __future__ import annotations

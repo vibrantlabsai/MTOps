@@ -1,9 +1,8 @@
 """User tools (6) — faithful port of the ITSM MCP's users category.
 
 Covers user CRUD and the various user lookups (by id, email, name) plus filtered listing.
-Verified against the live MCP by the differential conformance test.
 
-Behaviour confirmed empirically against the oracle:
+Behaviour confirmed empirically against the original ServiceNow MCP:
   * ``add_new_user`` generates ``user_id`` = ``USER_<seq:03d>``, ``user_name`` =
     ``<first>.<last>`` lowercased (the ``user_name`` arg is IGNORED), ``static_token`` =
     ``token_<urlsafe>`` (random — the only field that cannot reach byte parity), and inherits
@@ -45,7 +44,7 @@ class UserToolsMixin(ItsmToolsBase):
 
         The live MCP mints a random token via ``secrets``; we cannot (and need not) match that
         exact value. We derive it deterministically so gold-action replay reproduces the same
-        DB state for hash matching (the token differs from the oracle's, which is irreducible).
+        DB state for hash matching (the token differs from the original MCP's, which is irreducible).
         """
         return f"token_{hashlib.sha256(user_id.encode()).hexdigest()}"
 

@@ -2,9 +2,9 @@
 ``incident_knowledges`` category.
 
 Covers searching incident<->knowledge links, linking a knowledge article to an incident, and
-removing such links. Verified against the live MCP by the differential conformance test.
+removing such links.
 
-Behaviour confirmed empirically against the oracle:
+Behaviour confirmed empirically against the original ServiceNow MCP:
 * ``link_knowledge_to_incident`` mints ``IKB_<seq:03d>`` ids, defaults ``used_as`` to
   ``suggested``, inherits ``org_id`` from the *incident* (not the acting user nor the knowledge),
   validates the incident then the knowledge FK, and enforces the

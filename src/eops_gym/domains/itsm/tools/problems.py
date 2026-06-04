@@ -1,9 +1,8 @@
 """Problem tools (5) — faithful port of the ITSM MCP's problem category.
 
-Covers problem CRUD/search plus the assignment lookup. Verified against the live MCP by the
-differential conformance test.
+Covers problem CRUD/search plus the assignment lookup.
 
-Key behaviours confirmed against the oracle:
+Key behaviours confirmed against the original ServiceNow MCP:
 - ``problem_id`` = ``PRB_<maxidseq+1:03d>`` (sequential on existing ids).
 - ``number`` = ``PRB<maxnumberseq+1:07d>`` — derived from the max numeric tail across existing
   ``number`` values, NOT from the id sequence (seed rows may share a number).

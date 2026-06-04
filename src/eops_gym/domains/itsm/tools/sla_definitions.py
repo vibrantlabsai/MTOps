@@ -1,9 +1,8 @@
 """SLA definition tools (4) — faithful port of the ITSM MCP's sla_definitions category.
 
-Covers SLA-definition create, lookup-by-name, filtered list, and update. Verified against the
-live MCP by the differential conformance test.
+Covers SLA-definition create, lookup-by-name, filtered list, and update.
 
-Notes (confirmed empirically against the oracle):
+Notes (confirmed empirically against the original ServiceNow MCP):
 - ``sla_def_id`` is generated as ``SLA_<maxseq+1:03d>``.
 - ``org_id`` is inherited from the acting user's org (all our tasks are ORG_001).
 - Names must be globally unique (the duplicate check spans ALL orgs, not just the acting org,

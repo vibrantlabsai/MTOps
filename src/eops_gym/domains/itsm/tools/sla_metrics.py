@@ -3,8 +3,7 @@
 Aggregations over ``sla_definition.target_mins`` grouped by priority. The MCP keys its result
 by the *uppercased* requested priority and matches that uppercased value against the stored
 ``applies_to_priority`` column. Both tools return ``{"metrics": {<PRIORITY>: value}}``. With no
-``priority`` filter the result is an empty metrics object. Verified against the live MCP by the
-differential conformance test.
+``priority`` filter the result is an empty metrics object.
 """
 
 from __future__ import annotations

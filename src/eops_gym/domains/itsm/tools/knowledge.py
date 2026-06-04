@@ -1,9 +1,8 @@
 """Knowledge tools (3) — faithful port of the ITSM MCP's knowledge category.
 
-Covers knowledge-article create/retrieve/update. Verified against the live MCP by the
-differential conformance test.
+Covers knowledge-article create/retrieve/update.
 
-Notes from probing the oracle:
+Notes from probing the original ServiceNow MCP:
 - ``knowledge_id`` is ``KB_<maxseq+1:03d>`` over ALL existing rows (global, not per-org).
 - ``kb_number`` is ``KB<maxnum+1:07d>`` where ``maxnum`` is the largest numeric kb_number across
   ALL rows (global — the seed legitimately repeats kb_numbers across orgs, but generation keys

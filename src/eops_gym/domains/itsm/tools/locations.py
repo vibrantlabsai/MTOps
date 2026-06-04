@@ -1,7 +1,6 @@
 """Location tools (5) — faithful port of the ITSM MCP's location category.
 
 Covers location CRUD/search: add, get-by-id, find-by-name, list-with-filters, and update.
-Verified against the live MCP by the differential conformance test.
 """
 
 from __future__ import annotations

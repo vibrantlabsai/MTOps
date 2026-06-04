@@ -73,7 +73,7 @@ class ToolKitBase(metaclass=ToolKitType):
     def get_tool_schemas(self, include: Optional[list[str]] = None) -> list[dict]:
         """Typed OpenAI tool schemas built from each tool's type hints + docstring.
 
-        ``include`` optionally restricts to a subset of tool names (oracle-mode tool filtering).
+        ``include`` optionally restricts to a subset of tool names (optional tool-subset filtering).
         """
         from eops_gym.environment.tool import build_tool_schema
 

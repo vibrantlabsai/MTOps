@@ -1,9 +1,8 @@
 """Group tools (7) — faithful port of the ITSM MCP's groups category.
 
-Covers user-group CRUD/search and group-membership management. Verified against the live MCP
-by the differential conformance test.
+Covers user-group CRUD/search and group-membership management.
 
-Behaviour confirmed against the oracle:
+Behaviour confirmed against the original ServiceNow MCP:
 - ``add_new_user_group``: ``manager_id`` is required and the user must have the ``manager``
   role; group ``name`` is globally unique (across all orgs); the new group's ``org_id`` is the
   acting user's org. ``active`` defaults to True; ``email``/``description`` default to NULL.
@@ -61,8 +60,8 @@ class GroupToolsMixin(ItsmToolsBase):
     def _normalize_ts(value: Optional[str]) -> str:
         """SQLite stores ``created_on`` with a space separator; our records use 'T'.
 
-        Date filters in the oracle are a lexicographic comparison against the space-form stored
-        value, so normalize 'T' -> ' ' before comparing to the raw filter value.
+        Date filters in the original MCP are a lexicographic comparison against the space-form
+        stored value, so normalize 'T' -> ' ' before comparing to the raw filter value.
         """
         return (value or "").replace("T", " ", 1)
 
