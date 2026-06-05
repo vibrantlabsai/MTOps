@@ -97,9 +97,18 @@ def test_delta_set_create_delete():
     assert out.incident["INC_003"].priority == "critical"
     assert db.incident["INC_003"].priority != "critical", "input DB must not be mutated"
     assert out.get_hash() != before
-    # delete
-    out2 = apply_delta(db, {"incident": {"INC_003": {"delete": True}}})
-    assert "INC_003" not in out2.incident
+    # create a fresh, dependency-free incident (its payload must satisfy the FK + enum +
+    # id-format validators that now run on every apply_delta)
+    new_incident = {
+        "incident_id": "INC_900", "number": "INC0000900", "short_description": "delta test",
+        "caller_id": "USER_001", "org_id": "ORG_001", "status": "new",
+        "category": "inquiry-help", "impact": "low", "urgency": "low", "priority": "low",
+    }
+    out2 = apply_delta(db, {"incident": {"INC_900": {"create": new_incident}}})
+    assert "INC_900" in out2.incident
+    # delete it again (deleting INC_003 instead would now fail — incident_sla TSLA_004 references it)
+    out3 = apply_delta(out2, {"incident": {"INC_900": {"delete": True}}})
+    assert "INC_900" not in out3.incident
 
 
 def test_delta_error_paths():

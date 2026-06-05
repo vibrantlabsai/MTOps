@@ -1,20 +1,7 @@
 """Notification-analysis tools (4) — faithful port of the ITSM MCP's notification_analysis category.
 
 Pure read/aggregate tools over the ``notification`` table: count by incident / status / type,
-and the average notifications per incident. Verified against the live MCP by the differential
-conformance test.
-
-NOTE: the original server has two quirks faithfully reproduced here (confirmed against the
-oracle):
-
-* ``count_notifications_by_status`` / ``count_notifications_by_type`` return ``{"metrics": {}}``
-  when no filter is supplied, and when a filter *is* supplied they echo each requested value
-  **upper-cased** with a count of ``0`` — the server groups stored (lower-case) values but
-  matches them against the upper-cased filter, so the counts never line up. We mirror this
-  exactly so the differential return matches.
-* ``average_notifications_by_incident`` averages over the incidents that actually have at least
-  one notification (the divisor excludes zero-notification incidents); it returns ``0.0`` when
-  no in-scope incident has a notification, and rounds to two decimals.
+and the average notifications per incident.
 """
 
 from __future__ import annotations
@@ -116,7 +103,7 @@ class NotificationAnalysisToolsMixin(ItsmToolsBase):
 
     # ------------------------------------------------------------------ helpers
     def _count_by_field(self, field: str, values: Optional[List[str]]) -> dict:
-        """Mirror the oracle's status/type grouping (incl. its upper-case mismatch bug).
+        """Mirror the original MCP's status/type grouping (incl. its upper-case mismatch bug).
 
         With no filter the server returns an empty ``metrics`` map. With a filter it groups the
         notifications' (lower-case) field values but keys/compares against the upper-cased filter

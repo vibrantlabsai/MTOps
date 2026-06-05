@@ -1,18 +1,6 @@
 """SLA definition tools (4) — faithful port of the ITSM MCP's sla_definitions category.
 
-Covers SLA-definition create, lookup-by-name, filtered list, and update. Verified against the
-live MCP by the differential conformance test.
-
-Notes (confirmed empirically against the oracle):
-- ``sla_def_id`` is generated as ``SLA_<maxseq+1:03d>``.
-- ``org_id`` is inherited from the acting user's org (all our tasks are ORG_001).
-- Names must be globally unique (the duplicate check spans ALL orgs, not just the acting org,
-  despite the DB-level ``UNIQUE(org_id, name)`` constraint), and the comparison is exact/case
-  sensitive. Update excludes the record being edited from the duplicate check.
-- ``schedule`` is a free-form string (not FK-validated).
-- ``find_sla_definitions`` returns a dict ``{"sla_definitions": [...], "total_count": N}`` and is
-  NOT org-scoped (it returns rows across every org). ``created_after`` is strict ``>``;
-  ``created_before`` is inclusive ``<=``. Empty-string / null filters are ignored.
+Covers SLA-definition create, lookup-by-name, filtered list, and update.
 """
 
 from __future__ import annotations

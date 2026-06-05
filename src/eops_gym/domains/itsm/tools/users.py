@@ -1,22 +1,8 @@
 """User tools (6) — faithful port of the ITSM MCP's users category.
 
 Covers user CRUD and the various user lookups (by id, email, name) plus filtered listing.
-Verified against the live MCP by the differential conformance test.
-
-Behaviour confirmed empirically against the oracle:
-  * ``add_new_user`` generates ``user_id`` = ``USER_<seq:03d>``, ``user_name`` =
-    ``<first>.<last>`` lowercased (the ``user_name`` arg is IGNORED), ``static_token`` =
-    ``token_<urlsafe>`` (random — the only field that cannot reach byte parity), and inherits
-    ``org_id`` from the acting user. ``location_id`` defaults to NULL.
-  * Email uniqueness is scoped to the acting org; phone uniqueness is global.
-  * ``update_user_details`` only touches the fields it processes (email, first_name, last_name,
-    active, phone, role, location_id); ``user_name`` and ``company_id`` args are accepted but
-    NEVER stored. It rejects calls with no processable field (NO_FIELDS_PROVIDED) and calls
-    where every provided value already matches (NO_CHANGES_DETECTED). ``user_name`` is NOT
-    regenerated when first/last names change.
-  * ``list_users`` returns ``{"users": [...], "total_count": N}``. Filters: email/user_id/role
-    exact; first_name/last_name case-insensitive substring; phone exact (validated format);
-    active "true"/"false"; created_after strictly-greater, created_before less-or-equal.
+Note: ``add_new_user`` ignores the ``user_name`` arg (it derives ``<first>.<last>`` lowercased),
+and ``update_user_details`` accepts but never stores the ``user_name`` / ``company_id`` args.
 """
 
 from __future__ import annotations
@@ -45,7 +31,7 @@ class UserToolsMixin(ItsmToolsBase):
 
         The live MCP mints a random token via ``secrets``; we cannot (and need not) match that
         exact value. We derive it deterministically so gold-action replay reproduces the same
-        DB state for hash matching (the token differs from the oracle's, which is irreducible).
+        DB state for hash matching (the token differs from the original MCP's, which is irreducible).
         """
         return f"token_{hashlib.sha256(user_id.encode()).hexdigest()}"
 

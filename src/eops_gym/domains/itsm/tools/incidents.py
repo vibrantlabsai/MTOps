@@ -1,7 +1,7 @@
 """Incident tools (14) — faithful port of the ITSM MCP's incident category.
 
 Covers incident CRUD/search, priority/assignment-group aggregates, and the child-incident
-relationship tools. Verified against the live MCP by the differential conformance test.
+relationship tools.
 """
 
 from __future__ import annotations

@@ -1,11 +1,7 @@
 """Service tools (4) — faithful port of the ITSM MCP's services category.
 
-Covers business-service CRUD and search: ``add_new_service`` (unique name, default-filled
-classification fields, acting-user org scoping), ``find_service_by_name`` (exact match),
-``find_services`` (filtered list with case-insensitive partial name match + created_on range),
-and ``update_service`` (partial update with duplicate-name + idempotency validation).
-
-Verified byte-for-byte against the live MCP by the differential conformance test.
+Covers business-service CRUD and search: ``add_new_service``, ``find_service_by_name``,
+``find_services``, and ``update_service``.
 """
 
 from __future__ import annotations

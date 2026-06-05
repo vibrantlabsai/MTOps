@@ -1,21 +1,6 @@
 """Group tools (7) — faithful port of the ITSM MCP's groups category.
 
-Covers user-group CRUD/search and group-membership management. Verified against the live MCP
-by the differential conformance test.
-
-Behaviour confirmed against the oracle:
-- ``add_new_user_group``: ``manager_id`` is required and the user must have the ``manager``
-  role; group ``name`` is globally unique (across all orgs); the new group's ``org_id`` is the
-  acting user's org. ``active`` defaults to True; ``email``/``description`` default to NULL.
-- ``add_new_group_member``: validates group then user, rejects duplicate (group, user)
-  memberships; the new membership's ``org_id`` is taken from the *group's* org (not the user or
-  the caller).
-- ``remove_group_membership``: validates group, then user, then (if given) that ``member_id``
-  names the membership row for that exact (group, user); deletes the matching row.
-- ``update_user_group``: only name/type/active are mutable; raises if no field is provided, if
-  every provided field already matches (idempotency), or if a new name collides.
-- list reads return ``{"<collection>": [...], "total_count": N}`` ordered by ``created_on``
-  descending; date filters are a lexicographic ``created_on`` string comparison.
+Covers user-group CRUD/search and group-membership management.
 """
 
 from __future__ import annotations
@@ -61,8 +46,8 @@ class GroupToolsMixin(ItsmToolsBase):
     def _normalize_ts(value: Optional[str]) -> str:
         """SQLite stores ``created_on`` with a space separator; our records use 'T'.
 
-        Date filters in the oracle are a lexicographic comparison against the space-form stored
-        value, so normalize 'T' -> ' ' before comparing to the raw filter value.
+        Date filters in the original MCP are a lexicographic comparison against the space-form
+        stored value, so normalize 'T' -> ' ' before comparing to the raw filter value.
         """
         return (value or "").replace("T", " ", 1)
 

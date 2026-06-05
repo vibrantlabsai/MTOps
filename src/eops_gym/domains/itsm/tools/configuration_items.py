@@ -1,19 +1,6 @@
 """Configuration item tools (4) — faithful port of the ITSM MCP's CI category.
 
-Covers CI registration/update plus serial-number and filtered lookups. Verified against the
-live MCP by the differential conformance test.
-
-Behaviour confirmed empirically against the oracle:
-- ``register_configuration_item`` generates ``CI_<seq:03d>``, inherits ``org_id`` from the acting
-  user, leaves no ``*_display`` fields, and validates in this order: owner exists -> name unique
-  -> serial unique -> location exists.
-- ``update_configuration_item`` requires at least one mutable field, validates owner -> serial
-  uniqueness -> location, and raises a "no changes detected" error when every supplied *checked*
-  field (name, serial_number, owner_id, location_id, cost) already equals its current value.
-  ``status`` is NOT part of the no-change check and is always applied when supplied. Name
-  uniqueness is NOT enforced on update.
-- ``find_configuration_items`` returns a dict ``{"configuration_items": [...], "total_count": N}``
-  ordered by configuration_item_id descending.
+Covers CI registration/update plus serial-number and filtered lookups.
 """
 
 from __future__ import annotations
@@ -40,7 +27,7 @@ class ConfigurationItemToolsMixin(ItsmToolsBase):
 
     @staticmethod
     def _cost_repr(value: object) -> str:
-        """Render a cost value the way the oracle does in the no-changes message."""
+        """Render a cost value the way the original ServiceNow MCP does in the no-changes message."""
         try:
             return f"Decimal('{float(value):.2f}')"
         except (TypeError, ValueError):
@@ -70,7 +57,7 @@ class ConfigurationItemToolsMixin(ItsmToolsBase):
         Returns:
             The newly created configuration item.
         """
-        # Validation order mirrors the oracle: owner -> name -> serial -> location.
+        # Validation order mirrors the original MCP: owner -> name -> serial -> location.
         self._require_user(owner_id, "owner_id")
         for ci in self.db.configuration_item.values():
             if ci.name == name:
@@ -152,7 +139,7 @@ class ConfigurationItemToolsMixin(ItsmToolsBase):
                 field="configuration_item_id",
             )
 
-        # Owner validation fires first; the oracle reports it as the CI not being found.
+        # Owner validation fires first; the original MCP reports it as the CI not being found.
         if owner_id is not None and owner_id not in self.db.users:
             raise ItsmError(
                 f"Configuration item not found with identifier '{configuration_item_id}'",

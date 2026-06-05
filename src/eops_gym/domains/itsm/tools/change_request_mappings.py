@@ -1,15 +1,7 @@
 """Change request mapping tools (5) — faithful port of the ITSM MCP's change_request_mappings.
 
 Covers linking a change to an incident and/or problem (``map_change_request``), listing and
-finding mappings, and filtered deletion. Verified against the live MCP by the differential
-conformance test.
-
-Behaviour confirmed against the oracle:
-- New mapping ids are ``CRM_<maxseq+1:03d>``; the new row's ``org_id`` is the caller's org.
-- ``map_change_request`` validates change/incident/problem existence (in that order) and rejects
-  duplicates per ``(org_id, change_id, incident_id)`` then ``(org_id, change_id, problem_id)``.
-  It never validates that the linked entities belong to the caller's org.
-- Read/delete tools span all orgs (no org scoping); ``*_display`` fields do not exist here.
+finding mappings, and filtered deletion.
 """
 
 from __future__ import annotations

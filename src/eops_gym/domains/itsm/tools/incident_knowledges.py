@@ -2,18 +2,7 @@
 ``incident_knowledges`` category.
 
 Covers searching incident<->knowledge links, linking a knowledge article to an incident, and
-removing such links. Verified against the live MCP by the differential conformance test.
-
-Behaviour confirmed empirically against the oracle:
-* ``link_knowledge_to_incident`` mints ``IKB_<seq:03d>`` ids, defaults ``used_as`` to
-  ``suggested``, inherits ``org_id`` from the *incident* (not the acting user nor the knowledge),
-  validates the incident then the knowledge FK, and enforces the
-  ``UNIQUE(org_id, incident_id, knowledge_id)`` constraint.
-* ``remove_knowledge_link_to_incident`` selects either by ``incident_kb_id`` (``used_as`` is
-  ignored in this mode) or by the ``incident_id`` + ``knowledge_id`` pair (``used_as`` acts as an
-  extra match filter); requires one of those identifier modes.
-* ``find_incident_knowledge_links`` filters by any of the columns; ``used_as`` accepts a single
-  value or a comma-separated (optionally space-padded) list, lowercase only.
+removing such links.
 """
 
 from __future__ import annotations

@@ -2,18 +2,6 @@
 
 Covers incident-SLA CRUD/search plus the stage-wise breached count aggregate. The
 ``incident_sla`` table links an incident to an SLA definition and tracks its lifecycle stage.
-Verified against the live MCP by the differential conformance test.
-
-Behaviour confirmed empirically against the oracle:
-- ``link_new_incident_sla`` generates ``TSLA_<seq>`` ids; ``stage`` defaults to ``in_progress``
-  and ``has_breached`` to ``False``; ``org_id`` is always the caller's org (never derived from
-  the linked incident/definition); FK existence of incident + sla_def is enforced (not org
-  scoped); a duplicate ``(org_id, incident_id, sla_def_id)`` is rejected.
-- ``update_incident_sla_details`` mutates only the supplied fields, never changes ``org_id``
-  (even when ``incident_id`` moves cross-org), and does NOT re-check the uniqueness constraint.
-- ``find_incident_slas`` / ``delete_incident_slas`` / the count aggregate operate across ALL
-  orgs (no caller-org scoping, despite the catalog wording).
-- ``stage`` is validated everywhere against the five valid values.
 """
 
 from __future__ import annotations
@@ -24,7 +12,7 @@ from eops_gym.domains.itsm.data_model import IncidentSLA
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
 
-# Valid SLA stages (order mirrors the oracle's error message + enum definition).
+# Valid SLA stages (order mirrors the original MCP's error message + enum definition).
 _VALID_STAGES = ["in_progress", "paused", "completed", "cancelled", "breached"]
 
 
@@ -78,7 +66,7 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
         Returns:
             The created incident SLA record.
         """
-        # Order mirrors the oracle: incident FK -> sla_def FK -> uniqueness -> stage.
+        # Order mirrors the original MCP: incident FK -> sla_def FK -> uniqueness -> stage.
         self._require_incident(incident_id)
         self._require_sla_def(sla_def_id)
         org_id = self._acting_org()
@@ -139,7 +127,7 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
         Returns:
             The updated incident SLA record.
         """
-        # Order mirrors the oracle: record existence -> incident FK -> sla_def FK -> stage.
+        # Order mirrors the original MCP: record existence -> incident FK -> sla_def FK -> stage.
         record = self._require_incident_sla(incident_sla_id)
         if incident_id is not None:
             self._require_incident(incident_id)

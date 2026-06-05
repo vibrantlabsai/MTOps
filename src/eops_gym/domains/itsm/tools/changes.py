@@ -1,20 +1,6 @@
 """Change tools (5) — faithful port of the ITSM MCP's change category.
 
-Covers change-request CRUD/search and assignment lookups. Verified against the live MCP by
-the differential conformance test (``tests/test_itsm_changes_conformance.py``).
-
-Behaviour notes confirmed against the oracle:
-- ``create_change`` derives ``requested_by`` and ``org_id`` from the acting (authenticated)
-  user; it is not a tool parameter on create.
-- ``change_id`` is sequential over existing change_ids (``CHG_<maxseq+1:03d>``) while the human
-  ``number`` is a *separate* sequence over the numeric tail of existing ``change.number`` values
-  (``CHG{maxnum+1:07d}``); the two counters diverge whenever the seed re-uses numbers.
-- Defaults on create: ``category='other'``, ``cab_required=False``; ``*_display`` fields do not
-  exist on change so nothing is derived.
-- ``update_change`` raises NO_CHANGES_DETECTED when every provided field already equals the
-  stored value, and "No fields provided for update" when only ``change_id`` is given.
-- ``list_changes`` / ``get_changes_assigned_to`` are NOT org-scoped (they span all orgs); text
-  fields match case-insensitively as substrings while id/enum fields match exactly.
+Covers change-request CRUD/search and assignment lookups.
 """
 
 from __future__ import annotations

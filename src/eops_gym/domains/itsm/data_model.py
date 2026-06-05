@@ -9,9 +9,10 @@ Per-table timestamp column names intentionally differ (``incident`` uses created
 most others created_on/updated_on) — preserved verbatim for DB-hash fidelity.
 """
 
-from typing import Dict, Optional
+import re
+from typing import Dict, List, Optional, Tuple
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from eops_gym.environment.db import DB
 
@@ -353,11 +354,166 @@ class Notification(ItsmRecord):
     updated_on: Optional[str] = None
 
 
+# =============================================================================
+# Integrity spec — drives ``ItsmDB.validate_integrity`` (ID format + foreign keys).
+#
+# This is the single, declarative source of truth for cross-record invariants. It is
+# enforced at every ``ItsmDB.model_validate`` (seed load + post-delta) via the
+# ``model_validator`` below, NOT per tool-write (that would cost O(|DB|) per write in the
+# gold-replay hot loop for zero reward benefit). All IDs use a ``<PREFIX>_<digits>`` scheme;
+# the generator pads to >=3 digits, so the regex allows 3-or-more.
+# =============================================================================
+
+#: Non-composite collections -> (id prefix, id field). The dict key must match
+#: ``^<PREFIX>_\d{3,}$`` and equal the record's id field.
+_ID_SPEC: Dict[str, Tuple[str, str]] = {
+    "organization": ("ORG", "org_id"),
+    "role": ("ROLE", "role_id"),
+    "permission": ("PERM", "perm_id"),
+    "location": ("LOC", "location_id"),
+    "users": ("USER", "user_id"),
+    "user_group": ("GROUP", "group_id"),
+    "user_group_member": ("MEMBER", "member_id"),
+    "service": ("SVC", "service_id"),
+    "service_offering": ("SVCOFF", "service_offering_id"),
+    "configuration_item": ("CI", "configuration_item_id"),
+    "incident_template": ("TMPL", "incident_template_id"),
+    "incident": ("INC", "incident_id"),
+    "child_incident": ("CINC", "child_incident_mapping_id"),
+    "problem": ("PRB", "problem_id"),
+    "change": ("CHG", "change_id"),
+    "change_request_mapping": ("CRM", "change_request_mapping_id"),
+    "knowledge": ("KB", "knowledge_id"),
+    "incident_knowledge": ("IKB", "incident_kb_id"),
+    "incident_affected_cis": ("TASKCI", "incident_affected_cis_id"),
+    "sla_definition": ("SLA", "sla_def_id"),
+    "incident_sla": ("TSLA", "incident_sla_id"),
+    "notification": ("NOTIF", "notification_id"),
+}
+
+#: Composite-key collections -> ordered key segments as (segment prefix, target collection,
+#: body field). The dict key is the segments joined by ':'; each segment must match its
+#: prefix pattern, resolve to a PK in the target collection, AND equal the named body field.
+_COMPOSITE_KEYS: Dict[str, List[Tuple[str, str, str]]] = {
+    "role_permission": [("ROLE", "role", "role_id"), ("PERM", "permission", "perm_id")],
+    "user_role": [
+        ("USER", "users", "user_id"),
+        ("ROLE", "role", "role_id"),
+        ("ORG", "organization", "org_id"),
+    ],
+}
+
+#: Foreign keys -> per collection, list of (field, target collection, target kind).
+#: kind "pk" resolves against the target's dict keys; kind "name" resolves against the set of
+#: ``role.name`` values (the ``users.role`` special case — roles stay data-driven, not hardcoded).
+#: Denormalized ``*_display`` labels, ``notification.email``, timestamps, etc. are intentionally
+#: absent (they are not foreign keys).
+_FK_FIELDS: Dict[str, List[Tuple[str, str, str]]] = {
+    "location": [("org_id", "organization", "pk")],
+    "users": [
+        ("role", "role", "name"),
+        ("org_id", "organization", "pk"),
+        ("location_id", "location", "pk"),
+    ],
+    "user_group": [("manager_id", "users", "pk"), ("org_id", "organization", "pk")],
+    "user_group_member": [
+        ("group_id", "user_group", "pk"),
+        ("user_id", "users", "pk"),
+        ("org_id", "organization", "pk"),
+    ],
+    "service": [("owned_by", "users", "pk"), ("org_id", "organization", "pk")],
+    "service_offering": [
+        ("owned_by", "users", "pk"),
+        ("business_service", "service", "pk"),
+        ("org_id", "organization", "pk"),
+    ],
+    "configuration_item": [
+        ("owner_id", "users", "pk"),
+        ("location_id", "location", "pk"),
+        ("org_id", "organization", "pk"),
+    ],
+    "incident_template": [
+        ("caller_id", "users", "pk"),
+        ("configuration_item", "configuration_item", "pk"),
+        ("service", "service", "pk"),
+        ("service_offering", "service_offering", "pk"),
+        ("org_id", "organization", "pk"),
+    ],
+    "incident": [
+        ("caller_id", "users", "pk"),
+        ("service", "service", "pk"),
+        ("service_offering", "service_offering", "pk"),
+        ("configuration_item", "configuration_item", "pk"),
+        ("assigned_to", "users", "pk"),
+        ("assignment_group", "user_group", "pk"),
+        ("resolved_by", "users", "pk"),
+        ("problem", "problem", "pk"),
+        ("change_request", "change", "pk"),
+        ("caused_by_change", "change", "pk"),
+        ("incident_template", "incident_template", "pk"),
+        ("parent_incident", "incident", "pk"),
+        ("org_id", "organization", "pk"),
+    ],
+    "child_incident": [
+        ("parent_incident", "incident", "pk"),
+        ("child_incident", "incident", "pk"),
+    ],
+    "problem": [
+        ("opened_by", "users", "pk"),
+        ("service", "service", "pk"),
+        ("service_offering", "service_offering", "pk"),
+        ("configuration_item", "configuration_item", "pk"),
+        ("assigned_to", "users", "pk"),
+        ("assignment_group", "user_group", "pk"),
+        ("original_task", "incident", "pk"),
+        ("org_id", "organization", "pk"),
+    ],
+    "change": [
+        ("requested_by", "users", "pk"),
+        ("service", "service", "pk"),
+        ("service_offering", "service_offering", "pk"),
+        ("configuration_item", "configuration_item", "pk"),
+        ("assigned_to", "users", "pk"),
+        ("assignment_group", "user_group", "pk"),
+        ("org_id", "organization", "pk"),
+    ],
+    "change_request_mapping": [
+        ("change_id", "change", "pk"),
+        ("incident_id", "incident", "pk"),
+        ("problem_id", "problem", "pk"),
+        ("org_id", "organization", "pk"),
+    ],
+    "knowledge": [("owner_id", "users", "pk"), ("org_id", "organization", "pk")],
+    "incident_knowledge": [
+        ("incident_id", "incident", "pk"),
+        ("knowledge_id", "knowledge", "pk"),
+        ("org_id", "organization", "pk"),
+    ],
+    "incident_affected_cis": [
+        ("configuration_item", "configuration_item", "pk"),
+        ("incident_id", "incident", "pk"),
+        ("org_id", "organization", "pk"),
+    ],
+    "sla_definition": [("org_id", "organization", "pk")],
+    "incident_sla": [
+        ("incident_id", "incident", "pk"),
+        ("sla_def_id", "sla_definition", "pk"),
+        ("org_id", "organization", "pk"),
+    ],
+    "notification": [("incident_id", "incident", "pk"), ("org_id", "organization", "pk")],
+}
+
+
 class ItsmDB(DB):
     """In-memory ITSM database. One collection per table, keyed by primary key.
 
     Composite-key tables (role_permission, user_role) are keyed by their PK columns joined
     with ':' by the seed porter; the record still carries the individual columns.
+
+    A ``model_validator`` enforces cross-record integrity (ID format + foreign keys) on every
+    ``model_validate`` — i.e. seed load and post-delta. See ``_ID_SPEC`` / ``_FK_FIELDS`` /
+    ``_COMPOSITE_KEYS`` for the declarative spec. Consequently a delta that deletes a record
+    still referenced by another (no cascade) is rejected — order deletes leaf-first.
     """
 
     organization: Dict[str, Organization] = Field(default_factory=dict)
@@ -384,3 +540,75 @@ class ItsmDB(DB):
     sla_definition: Dict[str, SLADefinition] = Field(default_factory=dict)
     incident_sla: Dict[str, IncidentSLA] = Field(default_factory=dict)
     notification: Dict[str, Notification] = Field(default_factory=dict)
+
+    # -- integrity ----------------------------------------------------------
+    def validate_integrity(self) -> None:
+        """Check ID format and foreign keys across all collections.
+
+        Collects every violation and raises a single ``ValueError`` listing them (or returns
+        silently when the DB is clean). Pure and order-independent so the gold and predicted
+        environments — built by different code paths — validate identically; also invoked by the
+        ``model_validator`` on every ``model_validate``.
+        """
+        errors: List[str] = []
+
+        # 1. ID format + dict-key/id-field agreement (non-composite collections).
+        for coll, (prefix, id_field) in _ID_SPEC.items():
+            pattern = re.compile(rf"^{prefix}_\d{{3,}}$")
+            for key, rec in getattr(self, coll).items():
+                if not pattern.fullmatch(key):
+                    errors.append(f"{coll}: id {key!r} does not match {prefix}_<3+ digits>")
+                rec_id = getattr(rec, id_field)
+                if rec_id != key:
+                    errors.append(f"{coll}: {id_field}={rec_id!r} != dict key {key!r}")
+
+        # 2. Composite keys: segment format + resolution + agreement with body fields.
+        for coll, segments in _COMPOSITE_KEYS.items():
+            for key, rec in getattr(self, coll).items():
+                parts = key.split(":")
+                if len(parts) != len(segments):
+                    errors.append(
+                        f"{coll}: composite key {key!r} expected {len(segments)} segments"
+                    )
+                    continue
+                for part, (prefix, target, body_field) in zip(parts, segments):
+                    if not re.fullmatch(rf"{prefix}_\d{{3,}}", part):
+                        errors.append(f"{coll}: key {key!r} segment {part!r} bad format")
+                    elif part not in getattr(self, target):
+                        errors.append(
+                            f"{coll}: key {key!r} segment {part!r} not found in {target}"
+                        )
+                    if getattr(rec, body_field) != part:
+                        errors.append(
+                            f"{coll}: key {key!r} segment {part!r} != {body_field}="
+                            f"{getattr(rec, body_field)!r}"
+                        )
+
+        # 3. Foreign keys (None = unset, skipped). "name" kind resolves against role names.
+        role_names = {r.name for r in self.role.values()}
+        for coll, fks in _FK_FIELDS.items():
+            for key, rec in getattr(self, coll).items():
+                for field, target, kind in fks:
+                    value = getattr(rec, field)
+                    if value is None:
+                        continue
+                    if kind == "name":
+                        if value not in role_names:
+                            errors.append(
+                                f"{coll}.{field}={value!r} (record {key}) "
+                                f"matches no {target}.name"
+                            )
+                    elif value not in getattr(self, target):
+                        errors.append(
+                            f"{coll}.{field}={value!r} (record {key}) not found in {target}"
+                        )
+
+        if errors:
+            raise ValueError(
+                "ItsmDB integrity check failed:\n  - " + "\n  - ".join(errors)
+            )
+
+    @model_validator(mode="after")
+    def _enforce_integrity(self) -> "ItsmDB":
+        self.validate_integrity()
+        return self

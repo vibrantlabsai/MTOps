@@ -1,24 +1,7 @@
 """Notification tools (6) — faithful port of the ITSM MCP's notification category.
 
 Covers notification search (by id/incident/email/type/status/date-range), the email- and
-incident-scoped finders, and send/update/delete write tools. Verified against the live MCP by
-the differential conformance test.
-
-Notable oracle behaviours mirrored here (confirmed empirically against the live server):
-  - ``send_notification`` defaults ``type`` to ``"other"`` and ``status`` to ``"queued"``;
-    leaves ``subject``/``message`` NULL. It validates the incident exists, that the recipient
-    email belongs to *some* user (global, not org-scoped), and refuses to send to the acting
-    user's own email (``CANNOT_SEND_TO_SELF``). The new row's ``org_id`` is the acting user's org.
-  - ``update_notification`` validates the notification exists (NOT_FOUND otherwise); if
-    ``incident_id``/``email`` are supplied it validates incident existence / global email
-    existence (no self-send check on update). It never reassigns ``org_id`` and only touches the
-    fields supplied. Notifications of any org may be updated.
-  - The finder tools return ``{"notifications": [...], "count": N}`` and apply NO org scoping.
-    ``find_notifications_for_email`` / ``find_notifications_sent_for_incident`` raise NOT_FOUND
-    (rather than returning an empty list) when nothing matches.
-  - ``delete_notifications`` is registered on the live server but has no wired router endpoint,
-    so it returns an "API endpoint not found" error and never mutates state. We mirror that
-    exactly (raise; no DB mutation) to preserve byte-for-byte DB parity with the oracle.
+incident-scoped finders, and send/update/delete write tools.
 """
 
 from __future__ import annotations

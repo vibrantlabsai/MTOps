@@ -1,19 +1,6 @@
 """Problem tools (5) — faithful port of the ITSM MCP's problem category.
 
-Covers problem CRUD/search plus the assignment lookup. Verified against the live MCP by the
-differential conformance test.
-
-Key behaviours confirmed against the oracle:
-- ``problem_id`` = ``PRB_<maxidseq+1:03d>`` (sequential on existing ids).
-- ``number`` = ``PRB<maxnumberseq+1:07d>`` — derived from the max numeric tail across existing
-  ``number`` values, NOT from the id sequence (seed rows may share a number).
-- ``opened_by``/``org_id`` are inherited from the acting (authenticated) user on create.
-- FK args (assigned_to/opened_by → users, assignment_group → group, configuration_item → ci,
-  service, service_offering, original_task → incident) are validated.
-- ``list_problems`` enum filters (status/category/impact/urgency/priority) match
-  case-insensitively; id/text filters match exactly (case-sensitive); the text filters
-  (problem_statement/short_description/worknotes/workaround/fix_notes) are case-insensitive
-  substring matches. ``created_after`` is strict ``>``; ``created_before`` is ``<=``.
+Covers problem CRUD/search plus the assignment lookup.
 """
 
 from __future__ import annotations

@@ -1,8 +1,7 @@
 """Incident affected-CI tools (3) — faithful port of the ITSM MCP's incident_affected_cis category.
 
 Covers linking a configuration item to an incident (creating a ``TASKCI_xxx`` mapping), listing
-those mappings with optional filters, and bulk-removing them by filter. Verified against the live
-MCP by the differential conformance test.
+those mappings with optional filters, and bulk-removing them by filter.
 """
 
 from __future__ import annotations
