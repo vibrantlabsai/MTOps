@@ -26,5 +26,14 @@ class DB(BaseModel):
         dump_file(path, self.model_dump(), **kwargs)
 
     def get_hash(self) -> str:
-        """Stable hash of the full DB state (used for DB-match)."""
+        """Stable hash of the full DB state (used for the determinism check)."""
         return get_pydantic_hash(self)
+
+    def freetext_fields(self) -> dict[str, list[str]]:
+        """Map of ``collection -> [prose columns]`` to compare *fuzzily* during DB-match.
+
+        Default: none (every field is matched exactly, as before). Domains override this to
+        mark free-text columns (e.g. a notification subject/message) an agent can't reproduce
+        verbatim. See ``evaluator/evaluator_env.compare_dbs``.
+        """
+        return {}

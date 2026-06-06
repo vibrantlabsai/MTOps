@@ -68,6 +68,25 @@
       }
     },
     "evaluation_criteria": {
+      "actions": [
+        {
+          "name": "update_incident",
+          "arguments": {
+            "incident_id": "INC_003",
+            "status": "in_progress"
+          }
+        },
+        {
+          "name": "send_notification",
+          "arguments": {
+            "incident_id": "INC_003",
+            "email": "benjamin.chen@techcorp.com",
+            "type": "update",
+            "subject": "Update on INC0000003 (Printer connectivity issue)",
+            "message": "Hi Benjamin, the replacement part has arrived and we've resumed work on your printer connectivity incident — it is now in progress."
+          }
+        }
+      ],
       "nl_assertions": [
         "Incident INC0000003 (INC_003), previously on hold, is moved back to in_progress.",
         "The caller Benjamin Chen is sent an update notification to his email that work has resumed."

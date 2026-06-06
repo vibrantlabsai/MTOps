@@ -391,6 +391,20 @@ _ID_SPEC: Dict[str, Tuple[str, str]] = {
     "notification": ("NOTIF", "notification_id"),
 }
 
+#: Prose columns matched *fuzzily* (content overlap), not exactly, during DB-match — an LLM agent
+#: can't reproduce free text verbatim. Keyed by collection name, like ``_ID_SPEC`` / ``_FK_FIELDS``.
+#: Concise identifiers (``short_description``, ``title``) stay exact: tasks usually pin them.
+_FREETEXT_FIELDS: Dict[str, List[str]] = {
+    "notification": ["subject", "message"],
+    "incident": ["description", "worknotes", "resolution_notes", "close_notes"],
+    "problem": ["problem_statement", "worknotes", "workaround", "fix_notes"],
+    "change": ["description", "implementation_plan", "testing_plan", "close_notes"],
+    "knowledge": ["body"],
+    "service": ["description"],
+    "service_offering": ["description"],
+    "user_group": ["description"],
+}
+
 #: Composite-key collections -> ordered key segments as (segment prefix, target collection,
 #: body field). The dict key is the segments joined by ':'; each segment must match its
 #: prefix pattern, resolve to a PK in the target collection, AND equal the named body field.
@@ -540,6 +554,10 @@ class ItsmDB(DB):
     sla_definition: Dict[str, SLADefinition] = Field(default_factory=dict)
     incident_sla: Dict[str, IncidentSLA] = Field(default_factory=dict)
     notification: Dict[str, Notification] = Field(default_factory=dict)
+
+    def freetext_fields(self) -> Dict[str, List[str]]:
+        """Prose columns matched fuzzily (not exactly) during DB-match. See ``_FREETEXT_FIELDS``."""
+        return _FREETEXT_FIELDS
 
     # -- integrity ----------------------------------------------------------
     def validate_integrity(self) -> None:
