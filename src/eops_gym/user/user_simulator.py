@@ -27,6 +27,7 @@ Guidelines:
 
 <persona>
 Name: {name}
+Role: {role_description}
 Personality: {personality}
 </persona>
 
@@ -59,6 +60,7 @@ class UserSimulator:
         return SYSTEM_PROMPT.format(
             stop_token=STOP,
             name=self.scenario.persona.name,
+            role_description=self.scenario.persona.role_description or "(unspecified)",
             personality=self.scenario.persona.personality,
             known_info=known_info,
             task_description=self.scenario.task_description,

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 from eops_gym.agent.llm_agent import LLMAgent
 from eops_gym.data_model.message import AssistantMessage, ToolCall, UserMessage
-from eops_gym.data_model.tasks import UserProfile, Scenario
+from eops_gym.data_model.tasks import Identity, UserProfile, Scenario
 from eops_gym.user.base import STOP
 from eops_gym.user.user_simulator import UserSimulator
 from eops_gym.utils.llm_utils import generate
@@ -79,7 +79,13 @@ def test_agent_init_state_and_turn(mocker):
 
 
 def _scenario():
-    return Scenario(persona=UserProfile(name="Dana", personality="terse"), task_description="reset my VPN")
+    return Scenario(
+        persona=UserProfile(
+            identity=Identity(user_id="USER_003", first_name="Dana", last_name="Lee", email="dana@techcorp.com", role="agent"),
+            personality="terse",
+        ),
+        task_description="reset my VPN",
+    )
 
 
 def test_user_sim_system_prompt_and_stop():
