@@ -25,6 +25,7 @@ from eops_gym.domains.itsm import environment as itsm_environment
 from eops_gym.environment.environment import Environment
 from eops_gym.evaluator.evaluator import RewardInfo, evaluate_task
 from eops_gym.orchestrator.orchestrator import Orchestrator
+from eops_gym.utils.clock import DEFAULT_NOW, reset_now, set_now
 from eops_gym.utils.io_utils import dump_file
 
 DEFAULT_LLM_AGENT = "gpt-4o"
@@ -136,37 +137,44 @@ def run_task(
     """
     spec = get_domain(domain)
 
-    # Bake the task's acting user into a constructor so the live run, the gold-action replay,
-    # and the predicted-state rebuild all use the same environment.
-    def env_ctor(db_delta=None):
-        return spec.get_environment(
-            db_delta=db_delta,
-            acting_user_id=task.acting_user_id,
+    # The task owns "now": freeze the env clock to it so the live run, the gold-action replay, and
+    # the predicted-state rebuild all stamp identical timestamps (created_on/updated_on, and a new
+    # incident SLA's start_time). Restored afterwards so cross-task runs don't leak the clock.
+    set_now(task.current_time or DEFAULT_NOW)
+    try:
+        # Bake the task's acting user into a constructor so the live run, the gold-action replay,
+        # and the predicted-state rebuild all use the same environment.
+        def env_ctor(db_delta=None):
+            return spec.get_environment(
+                db_delta=db_delta,
+                acting_user_id=task.acting_user_id,
+            )
+
+        env = env_ctor(db_delta=task.initial_state_delta)
+        agent = LLMAgent(env.get_policy(), env.get_tool_schemas(), agent_llm)
+        if seed is not None:
+            agent.set_seed(seed)
+        user_sim = _make_user(task, user_llm)
+
+        run = Orchestrator(agent, user_sim, env, max_steps=max_steps).run()
+        reward_info = evaluate_task(
+            env_ctor,
+            task,
+            trajectory=run.trajectory,
+            final_env=env,
+            nl_llm=judge_llm,
         )
-
-    env = env_ctor(db_delta=task.initial_state_delta)
-    agent = LLMAgent(env.get_policy(), env.get_tool_schemas(), agent_llm)
-    if seed is not None:
-        agent.set_seed(seed)
-    user_sim = _make_user(task, user_llm)
-
-    run = Orchestrator(agent, user_sim, env, max_steps=max_steps).run()
-    reward_info = evaluate_task(
-        env_ctor,
-        task,
-        trajectory=run.trajectory,
-        final_env=env,
-        nl_llm=judge_llm,
-    )
-    return TaskResult(
-        task_id=task.id,
-        trial=trial,
-        reward=reward_info.reward,
-        reward_info=reward_info,
-        stopped=run.stopped,
-        num_tool_calls=len(run.agent_tool_calls),
-        trajectory=run.trajectory,
-    )
+        return TaskResult(
+            task_id=task.id,
+            trial=trial,
+            reward=reward_info.reward,
+            reward_info=reward_info,
+            stopped=run.stopped,
+            num_tool_calls=len(run.agent_tool_calls),
+            trajectory=run.trajectory,
+        )
+    finally:
+        reset_now()
 
 
 def run_domain(

@@ -78,6 +78,10 @@ class Task(BaseModel):
     evaluation_criteria: EvaluationCriteria = Field(default_factory=EvaluationCriteria)
     # item 7: collection -> record_id -> {set|create|delete}
     initial_state_delta: Optional[Delta] = None
+    # Wall-clock "now" for this scenario (ISO 8601). Drives the env clock for the live run and the
+    # gold replay; when None the gym's DEFAULT_NOW is used. Tool timestamps (created_on/updated_on,
+    # and a new incident SLA's start_time) are stamped from it, so they are reproducible across runs.
+    current_time: Optional[str] = None
 
     @property
     def acting_user_id(self) -> Optional[str]:
