@@ -45,7 +45,7 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
         self,
         incident_id: str,
         sla_def_id: str,
-        start_time: str,
+        start_time: Optional[str] = None,
         stage: Optional[str] = None,
         has_breached: Optional[bool] = None,
         breach_time: Optional[str] = None,
@@ -56,7 +56,8 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
         Args:
             incident_id: Incident identifier the SLA applies to (required).
             sla_def_id: SLA definition identifier (required).
-            start_time: Start time of the SLA, ISO timestamp (required).
+            start_time: Start time of the SLA, ISO timestamp. Defaults to the current time
+                (the env clock) when omitted, since a newly linked SLA starts now.
             stage: Lifecycle stage (in_progress, paused, completed, cancelled, breached);
                 defaults to 'in_progress'.
             has_breached: Whether the SLA has breached; defaults to False.
@@ -91,7 +92,7 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
             org_id=org_id,
             stage=stage or "in_progress",
             has_breached=has_breached if has_breached is not None else False,
-            start_time=start_time,
+            start_time=start_time if start_time is not None else now,
             breach_time=breach_time,
             completed_time=completed_time,
             created_on=now,
