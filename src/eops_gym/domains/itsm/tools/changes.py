@@ -327,7 +327,7 @@ class ChangeToolsMixin(ItsmToolsBase):
         close_notes: Optional[str] = None,
         created_after: Optional[str] = None,
         created_before: Optional[str] = None,
-    ) -> List[Change]:
+    ) -> dict:
         """List changes, optionally filtered. All filters are ANDed; omitted filters ignored.
 
         Id/enum filters match exactly; text filters (short_description, description,
@@ -357,12 +357,15 @@ class ChangeToolsMixin(ItsmToolsBase):
             created_before: Only changes created on/before this ISO timestamp.
 
         Returns:
-            The list of matching changes.
+            A dict with 'changes' (the matching changes) and 'total_count'.
         """
-        # The reference validates enum-typed filters too (invalid value -> error, not empty result).
+        # The reference validates enum-typed filters too (invalid value -> error, not empty
+        # result), but ONLY for truthy values: an empty-string filter is treated as "not
+        # provided" (the live manager skips falsy filters before validating/applying them, so
+        # e.g. close_code="" returns all rows rather than filtering or erroring).
         self._validate_change_enums(
-            status=status, priority=priority, impact=impact, risk=risk,
-            category=category, close_code=close_code,
+            status=status or None, priority=priority or None, impact=impact or None,
+            risk=risk or None, category=category or None, close_code=close_code or None,
         )
         eq_filters = {
             "change_id": change_id, "number": number, "service": service,
@@ -376,8 +379,9 @@ class ChangeToolsMixin(ItsmToolsBase):
             "implementation_plan": implementation_plan, "testing_plan": testing_plan,
             "close_notes": close_notes,
         }
-        active_eq = {k: v for k, v in eq_filters.items() if v is not None}
-        active_partial = {k: v for k, v in partial_filters.items() if v is not None}
+        # Falsy filter values (None or "") are treated as "not provided" (live behaviour).
+        active_eq = {k: v for k, v in eq_filters.items() if v}
+        active_partial = {k: v for k, v in partial_filters.items() if v}
 
         out: List[Change] = []
         for change in self.db.change.values():
@@ -391,17 +395,17 @@ class ChangeToolsMixin(ItsmToolsBase):
                     break
             if skip:
                 continue
-            if created_after is not None and (change.created_on or "") <= created_after:
+            if created_after and (change.created_on or "") <= created_after:
                 continue
-            if created_before is not None and (change.created_on or "") > created_before:
+            if created_before and (change.created_on or "") > created_before:
                 continue
             out.append(change)
-        return out
+        return {"changes": out, "total_count": len(out)}
 
     @is_tool(ToolType.READ)
     def get_changes_assigned_to(
         self, assignment_group: Optional[str] = None, assigned_to: Optional[str] = None
-    ) -> List[Change]:
+    ) -> dict:
         """List changes assigned to a user and/or assignment group.
 
         At least one of assignment_group or assigned_to must be provided.
@@ -411,7 +415,7 @@ class ChangeToolsMixin(ItsmToolsBase):
             assigned_to: Assignee user id to filter by.
 
         Returns:
-            The list of matching changes.
+            A dict with 'changes' (the matching changes) and 'total_count'.
         """
         if assignment_group is None and assigned_to is None:
             raise ItsmError(
@@ -425,7 +429,7 @@ class ChangeToolsMixin(ItsmToolsBase):
             if assigned_to is not None and change.assigned_to != assigned_to:
                 continue
             out.append(change)
-        return out
+        return {"changes": out, "total_count": len(out)}
 
     # ------------------------------------------------------------------ private
     def _first_admin_id(self) -> str:
