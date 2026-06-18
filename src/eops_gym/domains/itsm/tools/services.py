@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import Service
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
@@ -29,6 +30,24 @@ class ServiceToolsMixin(ItsmToolsBase):
     """Business-service management tools."""
 
     # -- helpers ------------------------------------------------------------
+    def _validate_service_enums(
+        self,
+        *,
+        status=None,
+        service_classification=None,
+        business_criticality=None,
+        used_for=None,
+    ) -> None:
+        """Reject out-of-set enum values, mirroring the reference's request-body enum gate."""
+        self._check_enum("status", status, enums.SERVICE_STATUS)
+        self._check_enum(
+            "service_classification", service_classification, enums.SERVICE_CLASSIFICATION
+        )
+        self._check_enum(
+            "business_criticality", business_criticality, enums.SERVICE_BUSINESS_CRITICALITY
+        )
+        self._check_enum("used_for", used_for, enums.SERVICE_USED_FOR)
+
     def _svc_require_owner(self, user_id: str) -> None:
         """Validate an ``owned_by`` FK; mirror the MCP's USER_NOT_FOUND envelope."""
         if user_id not in self.db.users:
@@ -74,6 +93,11 @@ class ServiceToolsMixin(ItsmToolsBase):
         Returns:
             The newly created service.
         """
+        # Enum validation first (the reference validates the request body before FK/dup checks).
+        self._validate_service_enums(
+            status=status, service_classification=service_classification,
+            business_criticality=business_criticality, used_for=used_for,
+        )
         if self._name_taken(name):
             raise ItsmError(
                 f"A service with name '{name}' already exists",
@@ -133,6 +157,11 @@ class ServiceToolsMixin(ItsmToolsBase):
         Returns:
             The updated service.
         """
+        # Enum validation first (the reference validates the request body before FK/existence checks).
+        self._validate_service_enums(
+            status=status, service_classification=service_classification,
+            business_criticality=business_criticality, used_for=used_for,
+        )
         provided = {
             "name": name,
             "owned_by": owned_by,
@@ -238,6 +267,11 @@ class ServiceToolsMixin(ItsmToolsBase):
         Returns:
             A dict ``{"services": [...], "total_count": N}`` of matching services.
         """
+        # The reference validates enum-typed filters too (invalid value -> error, not empty result).
+        self._validate_service_enums(
+            status=status, service_classification=service_classification,
+            business_criticality=business_criticality, used_for=used_for,
+        )
         out: List[Service] = []
         for svc in self.db.service.values():
             if service_id is not None and svc.service_id != service_id:

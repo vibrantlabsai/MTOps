@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import SLADefinition
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
@@ -16,6 +17,16 @@ class SLADefinitionToolsMixin(ItsmToolsBase):
     """SLA definition management tools."""
 
     # ------------------------------------------------------------------ helpers
+    def _validate_sla_def_enums(
+        self,
+        *,
+        metric=None,
+        applies_to_priority=None,
+    ) -> None:
+        """Reject out-of-set enum values, mirroring the reference's request-body enum gate."""
+        self._check_enum("metric", metric, enums.SLA_METRIC)
+        self._check_enum("applies_to_priority", applies_to_priority, enums.SLA_APPLIES_TO_PRIORITY)
+
     def _sla_require_unique_name(self, name: str, exclude_id: Optional[str] = None) -> None:
         """Raise if another SLA definition (any org) already uses this exact name."""
         for sla in self.db.sla_definition.values():
@@ -54,6 +65,8 @@ class SLADefinitionToolsMixin(ItsmToolsBase):
         Returns:
             The created SLA definition.
         """
+        # Enum validation first (the reference validates the request body before FK/uniqueness checks).
+        self._validate_sla_def_enums(metric=metric, applies_to_priority=applies_to_priority)
         self._sla_require_unique_name(name)
 
         sla_def_id, _ = self._make_id(self.db.sla_definition, "SLA")
@@ -104,6 +117,7 @@ class SLADefinitionToolsMixin(ItsmToolsBase):
         Returns:
             The updated SLA definition.
         """
+        self._validate_sla_def_enums(metric=metric, applies_to_priority=applies_to_priority)
         sla = self.db.sla_definition.get(sla_def_id)
         if sla is None:
             raise ItsmError(

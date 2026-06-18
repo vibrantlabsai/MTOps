@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import Change
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
@@ -21,6 +22,24 @@ class ChangeToolsMixin(ItsmToolsBase):
     """Change management tools."""
 
     # ------------------------------------------------------------------ helpers
+    def _validate_change_enums(
+        self,
+        *,
+        status=None,
+        priority=None,
+        impact=None,
+        risk=None,
+        category=None,
+        close_code=None,
+    ) -> None:
+        """Reject out-of-set enum values, mirroring the reference's request-body enum gate."""
+        self._check_enum("status", status, enums.CHANGE_STATUS)
+        self._check_enum("priority", priority, enums.CHANGE_PRIORITY)
+        self._check_enum("impact", impact, enums.CHANGE_IMPACT)
+        self._check_enum("risk", risk, enums.CHANGE_RISK)
+        self._check_enum("category", category, enums.CHANGE_CATEGORY)
+        self._check_enum("close_code", close_code, enums.CHANGE_CLOSE_CODE)
+
     def _chg_require_service(self, service_id: Optional[str], field: str = "service") -> None:
         if service_id is not None and service_id not in self.db.service:
             raise ItsmError(
@@ -109,6 +128,11 @@ class ChangeToolsMixin(ItsmToolsBase):
         Returns:
             The created change request.
         """
+        # Enum validation first (the reference validates the request body before manager FK checks).
+        self._validate_change_enums(
+            status=status, priority=priority, impact=impact, risk=risk,
+            category=category, close_code=close_code,
+        )
         self._require_user(assigned_to, "assigned_to")
         self._require_group(assignment_group)
         self._require_ci(configuration_item)
@@ -202,6 +226,11 @@ class ChangeToolsMixin(ItsmToolsBase):
         Returns:
             The updated change request.
         """
+        # Enum validation first (the reference validates the request body before manager FK checks).
+        self._validate_change_enums(
+            status=status, priority=priority, impact=impact, risk=risk,
+            category=category, close_code=close_code,
+        )
         updates = {
             "number": number, "requested_by": requested_by,
             "short_description": short_description, "service": service,
@@ -224,6 +253,21 @@ class ChangeToolsMixin(ItsmToolsBase):
         self._require_ci(configuration_item)
         self._chg_require_service(service)
         self._chg_require_service_offering(service_offering)
+
+        # Number must stay unique within the org.
+        if number is not None:
+            for other in self.db.change.values():
+                if (
+                    other.change_id != change_id
+                    and other.org_id == change.org_id
+                    and other.number == number
+                ):
+                    raise ItsmError(
+                        f"Change with number '{number}' already exists in organization "
+                        f"'{change.org_id}'",
+                        code="DUPLICATE_NUMBER",
+                        field="number",
+                    )
 
         unchanged = [k for k, v in provided.items() if getattr(change, k) == v]
         if len(unchanged) == len(provided):
@@ -315,6 +359,11 @@ class ChangeToolsMixin(ItsmToolsBase):
         Returns:
             The list of matching changes.
         """
+        # The reference validates enum-typed filters too (invalid value -> error, not empty result).
+        self._validate_change_enums(
+            status=status, priority=priority, impact=impact, risk=risk,
+            category=category, close_code=close_code,
+        )
         eq_filters = {
             "change_id": change_id, "number": number, "service": service,
             "service_offering": service_offering, "configuration_item": configuration_item,

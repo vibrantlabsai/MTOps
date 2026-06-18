@@ -8,24 +8,28 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import IncidentSLA
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
-
-# Valid SLA stages (order mirrors the original MCP's error message + enum definition).
-_VALID_STAGES = ["in_progress", "paused", "completed", "cancelled", "breached"]
 
 
 class IncidentSLAToolsMixin(ItsmToolsBase):
     """Incident SLA management tools."""
 
     # ------------------------------------------------------------------ helpers
-    def _validate_stage(self, stage: Optional[str]) -> None:
-        if stage is not None and stage not in _VALID_STAGES:
-            raise ItsmError(
-                f"Invalid stage '{stage}'. Valid values: {_VALID_STAGES}",
-                field="stage",
-            )
+    def _normalize_stage(self, stage: Optional[str]) -> Optional[str]:
+        """Normalize then validate an incident-SLA stage, returning the canonical value.
+
+        The reference normalizes case for this one field (e.g. 'Breached' -> 'breached'), so we
+        strip()/lower() before validating against ``enums.INCIDENT_SLA_STAGE`` and storing the
+        normalized lowercase value. ``None`` (field not supplied) passes through unchanged.
+        """
+        if stage is None:
+            return None
+        stage = stage.strip().lower()
+        self._check_enum("stage", stage, enums.INCIDENT_SLA_STAGE)
+        return stage
 
     def _require_sla_def(self, sla_def_id: str) -> None:
         if sla_def_id not in self.db.sla_definition:
@@ -67,6 +71,10 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
         Returns:
             The created incident SLA record.
         """
+        # An explicit empty start_time is rejected (the reference requires a value); an omitted
+        # start_time still auto-stamps from the env clock (see default handling below).
+        if start_time is not None and not start_time.strip():
+            raise ItsmError("start_time cannot be empty", field="start_time")
         # Order mirrors the original MCP: incident FK -> sla_def FK -> uniqueness -> stage.
         self._require_incident(incident_id)
         self._require_sla_def(sla_def_id)
@@ -81,7 +89,7 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
                     f"SLA '{sla_def_id}' is already linked to incident '{incident_id}'",
                     field="sla_def_id",
                 )
-        self._validate_stage(stage)
+        stage = self._normalize_stage(stage)
 
         incident_sla_id, _ = self._make_id(self.db.incident_sla, "TSLA")
         now = self._now()
@@ -128,14 +136,11 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
         Returns:
             The updated incident SLA record.
         """
-        # Order mirrors the original MCP: record existence -> incident FK -> sla_def FK -> stage.
+        # Order mirrors the original MCP: record existence -> required-field -> FK -> uniqueness ->
+        # no-op detection. A pure-id call (no updatable field) and a call that changes nothing are
+        # both rejected, matching the reference.
         record = self._require_incident_sla(incident_sla_id)
-        if incident_id is not None:
-            self._require_incident(incident_id)
-        if sla_def_id is not None:
-            self._require_sla_def(sla_def_id)
-        self._validate_stage(stage)
-
+        stage = self._normalize_stage(stage)
         updates = {
             "incident_id": incident_id,
             "sla_def_id": sla_def_id,
@@ -145,9 +150,33 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
             "breach_time": breach_time,
             "completed_time": completed_time,
         }
-        for field, value in updates.items():
-            if value is not None:
-                setattr(record, field, value)
+        provided = {k: v for k, v in updates.items() if v is not None}
+        if not provided:
+            raise ItsmError("At least one field must be provided for update")
+        if incident_id is not None:
+            self._require_incident(incident_id)
+        if sla_def_id is not None:
+            self._require_sla_def(sla_def_id)
+        # Re-check the (org, incident, sla_def) uniqueness if either side of the pair changes.
+        if incident_id is not None or sla_def_id is not None:
+            new_incident = incident_id or record.incident_id
+            new_sla_def = sla_def_id or record.sla_def_id
+            for other in self.db.incident_sla.values():
+                if (
+                    other.incident_sla_id != incident_sla_id
+                    and other.org_id == record.org_id
+                    and other.incident_id == new_incident
+                    and other.sla_def_id == new_sla_def
+                ):
+                    raise ItsmError(
+                        f"SLA '{new_sla_def}' is already linked to incident '{new_incident}'",
+                        field="sla_def_id",
+                    )
+        changed = {k: v for k, v in provided.items() if getattr(record, k) != v}
+        if not changed:
+            raise ItsmError("No changes detected", code="NO_CHANGES_DETECTED")
+        for field, value in changed.items():
+            setattr(record, field, value)
         record.updated_on = self._now()
         return record
 
@@ -178,7 +207,15 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
         Returns:
             A summary mapping with the number of records deleted.
         """
-        self._validate_stage(stage)
+        # A no-filter delete is rejected (the reference requires >=1 filter); without this guard an
+        # empty call would match — and wipe — every row.
+        if all(
+            v is None
+            for v in (incident_sla_id, incident_id, sla_def_id, stage, has_breached,
+                      created_before, created_after)
+        ):
+            raise ItsmError("At least one filter must be provided", code="VALIDATION_ERROR")
+        stage = self._normalize_stage(stage)
         to_remove: List[str] = []
         for record_id, record in self.db.incident_sla.items():
             if incident_sla_id is not None and record_id != incident_sla_id:
@@ -228,7 +265,7 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
         Returns:
             A mapping with the matching records under 'incident_slas' and their 'total_count'.
         """
-        self._validate_stage(stage)
+        stage = self._normalize_stage(stage)
         out: List[IncidentSLA] = []
         for record in self.db.incident_sla.values():
             if incident_sla_id is not None and record.incident_sla_id != incident_sla_id:
@@ -267,8 +304,7 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
             A mapping with per-stage breached counts under 'counts'.
         """
         if stages is not None:
-            for stage in stages:
-                self._validate_stage(stage)
+            stages = [self._normalize_stage(stage) for stage in stages]
         counts: dict = {}
         for record in self.db.incident_sla.values():
             if not record.has_breached:

@@ -21,7 +21,7 @@ class ChangeRequestMappingToolsMixin(ItsmToolsBase):
         if change_id not in self.db.change:
             raise ItsmError(f"Change '{change_id}' not found", field="change_id")
 
-    def _require_problem(self, problem_id: str) -> None:
+    def _crm_require_problem(self, problem_id: str) -> None:
         if problem_id not in self.db.problem:
             raise ItsmError(f"Problem '{problem_id}' not found", field="problem_id")
 
@@ -58,7 +58,7 @@ class ChangeRequestMappingToolsMixin(ItsmToolsBase):
         if incident_id is not None:
             self._require_incident(incident_id)
         if problem_id is not None:
-            self._require_problem(problem_id)
+            self._crm_require_problem(problem_id)
 
         org_id = self._acting_org()
 
@@ -246,7 +246,7 @@ class ChangeRequestMappingToolsMixin(ItsmToolsBase):
         Returns:
             A dict with the matching mappings and a total_count.
         """
-        self._require_problem(problem_id)
+        self._crm_require_problem(problem_id)
         out = [m for m in self.db.change_request_mapping.values()
                if m.problem_id == problem_id]
         return {

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import UserGroup, UserGroupMember
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
@@ -16,6 +17,10 @@ class GroupToolsMixin(ItsmToolsBase):
     """User-group and group-membership management tools."""
 
     # ----------------------------------------------------------------- helpers
+    def _validate_group_enums(self, *, type=None) -> None:
+        """Reject out-of-set enum values, mirroring the reference's request-body enum gate."""
+        self._check_enum("type", type, enums.GROUP_TYPE)
+
     def _require_group_exists(self, group_id: str) -> UserGroup:
         group = self.db.user_group.get(group_id)
         if group is None:
@@ -75,6 +80,8 @@ class GroupToolsMixin(ItsmToolsBase):
         Returns:
             The newly created user group.
         """
+        # Enum validation first (the reference validates the request body before manager FK checks).
+        self._validate_group_enums(type=type)
         manager = self._require_user_exists(manager_id, field="manager_id")
         if manager.role != "manager":
             raise ItsmError(
@@ -123,6 +130,7 @@ class GroupToolsMixin(ItsmToolsBase):
         Returns:
             The updated user group.
         """
+        self._validate_group_enums(type=type)
         group = self._require_group_exists(group_id)
 
         provided = {
@@ -273,6 +281,8 @@ class GroupToolsMixin(ItsmToolsBase):
         Returns:
             A mapping with 'user_groups' (the matching groups) and 'total_count'.
         """
+        # The reference validates enum-typed filters too (invalid value -> error, not empty result).
+        self._validate_group_enums(type=type)
         out: List[UserGroup] = []
         for g in self.db.user_group.values():
             if group_id is not None and g.group_id != group_id:

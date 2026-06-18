@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import ChildIncident, Incident
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
@@ -15,6 +16,29 @@ from eops_gym.environment.toolkit import ToolType, is_tool
 
 class IncidentToolsMixin(ItsmToolsBase):
     """Incident management tools."""
+
+    # ------------------------------------------------------------------ helpers
+    def _validate_incident_enums(
+        self,
+        *,
+        status=None,
+        category=None,
+        impact=None,
+        urgency=None,
+        priority=None,
+        channel=None,
+        on_hold_reason=None,
+        resolution_code=None,
+    ) -> None:
+        """Reject out-of-set enum values, mirroring the reference's request-body enum gate."""
+        self._check_enum("status", status, enums.INCIDENT_STATUS)
+        self._check_enum("category", category, enums.INCIDENT_CATEGORY)
+        self._check_enum("impact", impact, enums.INCIDENT_IMPACT)
+        self._check_enum("urgency", urgency, enums.INCIDENT_URGENCY)
+        self._check_enum("priority", priority, enums.INCIDENT_PRIORITY)
+        self._check_enum("channel", channel, enums.INCIDENT_CHANNEL)
+        self._check_enum("on_hold_reason", on_hold_reason, enums.INCIDENT_ON_HOLD_REASON)
+        self._check_enum("resolution_code", resolution_code, enums.INCIDENT_RESOLUTION_CODE)
 
     # ------------------------------------------------------------------ writes
     @is_tool(ToolType.WRITE)
@@ -80,11 +104,22 @@ class IncidentToolsMixin(ItsmToolsBase):
         Returns:
             The created incident.
         """
+        # Enum validation first (the reference validates the request body before manager FK checks).
+        self._validate_incident_enums(
+            status=status, category=category, impact=impact, urgency=urgency, priority=priority,
+            channel=channel, on_hold_reason=on_hold_reason, resolution_code=resolution_code,
+        )
         self._require_user(caller_id, "caller_id")
         self._require_user(assigned_to, "assigned_to")
         self._require_user(resolved_by, "resolved_by")
         self._require_group(assignment_group)
         self._require_ci(configuration_item)
+        self._require_service(service)
+        self._require_service_offering(service_offering)
+        self._require_problem(problem)
+        self._require_change(change_request, "change_request")
+        self._require_change(caused_by_change, "caused_by_change")
+        self._require_incident_template(incident_template)
 
         incident_id, seq = self._make_id(self.db.incident, "INC")
         now = self._now()
@@ -192,12 +227,22 @@ class IncidentToolsMixin(ItsmToolsBase):
         Returns:
             The updated incident.
         """
+        self._validate_incident_enums(
+            status=status, category=category, impact=impact, urgency=urgency, priority=priority,
+            channel=channel, on_hold_reason=on_hold_reason, resolution_code=resolution_code,
+        )
         incident = self._require_incident(incident_id)
         self._require_user(caller_id, "caller_id")
         self._require_user(assigned_to, "assigned_to")
         self._require_user(resolved_by, "resolved_by")
         self._require_group(assignment_group)
         self._require_ci(configuration_item)
+        self._require_service(service)
+        self._require_service_offering(service_offering)
+        self._require_problem(problem)
+        self._require_change(change_request, "change_request")
+        self._require_change(caused_by_change, "caused_by_change")
+        self._require_incident_template(incident_template)
 
         updates = {
             "number": number, "service": service, "service_offering": service_offering,
@@ -318,6 +363,11 @@ class IncidentToolsMixin(ItsmToolsBase):
         Returns:
             The list of matching incidents.
         """
+        # The reference validates enum-typed filters too (invalid value -> error, not empty result).
+        self._validate_incident_enums(
+            status=status, category=category, impact=impact, urgency=urgency, priority=priority,
+            channel=channel, on_hold_reason=on_hold_reason, resolution_code=resolution_code,
+        )
         # map exposed filter name -> incident attribute ('called_id' is the MCP's spelling)
         eq_filters = {
             "incident_id": incident_id, "number": number, "service": service,

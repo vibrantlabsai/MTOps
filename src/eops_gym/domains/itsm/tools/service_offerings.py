@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import ServiceOffering
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
@@ -19,6 +20,24 @@ class ServiceOfferingToolsMixin(ItsmToolsBase):
     """Service offering management tools."""
 
     # ------------------------------------------------------------------ helpers
+    def _validate_service_offering_enums(
+        self,
+        *,
+        status=None,
+        service_classification=None,
+        business_criticality=None,
+        used_for=None,
+    ) -> None:
+        """Reject out-of-set enum values, mirroring the reference's request-body enum gate."""
+        self._check_enum("status", status, enums.SERVICE_STATUS)
+        self._check_enum(
+            "service_classification", service_classification, enums.SERVICE_CLASSIFICATION
+        )
+        self._check_enum(
+            "business_criticality", business_criticality, enums.SERVICE_BUSINESS_CRITICALITY
+        )
+        self._check_enum("used_for", used_for, enums.SERVICE_USED_FOR)
+
     def _so_require_service(self, service_id: Optional[str], field: str = "parent") -> None:
         """Raise if a non-None service id does not exist (FK on ``business_service``)."""
         if service_id is not None and service_id not in self.db.service:
@@ -85,6 +104,11 @@ class ServiceOfferingToolsMixin(ItsmToolsBase):
         Returns:
             The created service offering.
         """
+        # Enum validation first (the reference validates the request body before FK/uniqueness).
+        self._validate_service_offering_enums(
+            status=status, service_classification=service_classification,
+            business_criticality=business_criticality, used_for=used_for,
+        )
         self._so_require_owner(owned_by)
         self._so_require_service(parent)
         self._so_require_unique_name(name)
@@ -144,6 +168,11 @@ class ServiceOfferingToolsMixin(ItsmToolsBase):
         Returns:
             The updated service offering.
         """
+        # Enum validation first (the reference validates the request body before FK/existence).
+        self._validate_service_offering_enums(
+            status=status, service_classification=service_classification,
+            business_criticality=business_criticality, used_for=used_for,
+        )
         # map exposed arg name -> stored column name
         updates = {
             "name": name,
@@ -236,6 +265,11 @@ class ServiceOfferingToolsMixin(ItsmToolsBase):
         Returns:
             The list of matching service offerings.
         """
+        # The reference validates enum-typed filters too (invalid value -> error, not empty result).
+        self._validate_service_offering_enums(
+            status=status, service_classification=service_classification,
+            business_criticality=business_criticality, used_for=used_for,
+        )
         # exact-match filters mapped to stored attribute names
         eq_filters = {
             "service_offering_id": service_offering_id,

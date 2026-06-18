@@ -142,6 +142,14 @@ class IncidentAffectedCIToolsMixin(ItsmToolsBase):
         Returns:
             A summary with the number of mappings removed.
         """
+        # A no-filter call is rejected (the reference requires >=1 filter); otherwise an empty
+        # call would match — and delete — every mapping.
+        if all(
+            v is None
+            for v in (incident_affected_cis_id, configuration_item, incident_id,
+                      created_before, created_after)
+        ):
+            raise ItsmError("At least one filter must be provided", code="VALIDATION_ERROR")
         to_remove = [
             mid
             for mid, m in self.db.incident_affected_cis.items()

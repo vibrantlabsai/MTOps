@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import IncidentKnowledge
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
@@ -20,6 +21,18 @@ class IncidentKnowledgeToolsMixin(ItsmToolsBase):
     """Incident-knowledge link management tools."""
 
     # ----------------------------------------------------------------- helpers
+    def _validate_used_as(self, *, used_as: Optional[str] = None) -> None:
+        """Reject out-of-set ``used_as`` values, mirroring the reference's request-body enum gate.
+
+        ``used_as`` may be a single value (link/remove) or a comma-separated list of values (the
+        ``find`` filter form); each value is checked against ``enums.USED_AS``. ``None`` is a
+        no-op (``self._check_enum`` no-ops on ``None`` too).
+        """
+        if used_as is None:
+            return
+        for value in (v.strip() for v in used_as.split(",") if v.strip()):
+            self._check_enum("used_as", value, enums.USED_AS)
+
     def _require_knowledge(self, knowledge_id: str, field: str = "knowledge_id"):
         kb = self.db.knowledge.get(knowledge_id)
         if kb is None:
@@ -67,6 +80,7 @@ class IncidentKnowledgeToolsMixin(ItsmToolsBase):
         Returns:
             The list of matching incident-knowledge links.
         """
+        self._validate_used_as(used_as=used_as)
         used_as_values = self._parse_used_as(used_as) if used_as is not None else None
         out: List[IncidentKnowledge] = []
         for link in self.db.incident_knowledge.values():
@@ -100,6 +114,7 @@ class IncidentKnowledgeToolsMixin(ItsmToolsBase):
         Returns:
             The created incident-knowledge link.
         """
+        self._validate_used_as(used_as=used_as)
         incident = self._require_incident(incident_id)
         self._require_knowledge(knowledge_id)
 
@@ -151,6 +166,7 @@ class IncidentKnowledgeToolsMixin(ItsmToolsBase):
         Returns:
             A confirmation message dict.
         """
+        self._validate_used_as(used_as=used_as)
         if incident_kb_id is not None:
             link = self.db.incident_knowledge.get(incident_kb_id)
             if link is None:

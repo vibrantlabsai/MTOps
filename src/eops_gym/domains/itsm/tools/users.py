@@ -11,6 +11,7 @@ import hashlib
 from datetime import datetime
 from typing import List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import User
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
@@ -20,6 +21,10 @@ class UserToolsMixin(ItsmToolsBase):
     """User management tools."""
 
     # ----------------------------------------------------------------- helpers
+    def _validate_user_enums(self, *, role=None) -> None:
+        """Reject out-of-set enum values, mirroring the reference's request-body enum gate."""
+        self._check_enum("role", role, enums.USER_ROLE)
+
     @staticmethod
     def _gen_user_name(first_name: str, last_name: str) -> str:
         """Login name = ``<first>.<last>`` lowercased (mirrors the MCP)."""
@@ -82,6 +87,8 @@ class UserToolsMixin(ItsmToolsBase):
         Returns:
             The newly created user.
         """
+        # Enum validation first (the reference validates the request body before FK/existence checks).
+        self._validate_user_enums(role=role)
         self._usr_require_location(location_id)
 
         org_id = self._acting_org()
@@ -154,6 +161,8 @@ class UserToolsMixin(ItsmToolsBase):
         Returns:
             The updated user.
         """
+        # Enum validation first (the reference validates the request body before FK/existence checks).
+        self._validate_user_enums(role=role)
         user = self.db.users.get(user_id)
         if user is None:
             raise ItsmError(
@@ -298,6 +307,8 @@ class UserToolsMixin(ItsmToolsBase):
         Returns:
             A dict with the matching users and their total count.
         """
+        # The reference validates enum-typed filters too (invalid value -> error, not empty result).
+        self._validate_user_enums(role=role)
         after_dt = self._usr_parse_dt(created_after) if created_after else None
         before_dt = self._usr_parse_dt(created_before) if created_before else None
         active_bool = None

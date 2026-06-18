@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import IncidentTemplate
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
@@ -18,6 +19,21 @@ class IncidentTemplateToolsMixin(ItsmToolsBase):
     """Incident-template management tools."""
 
     # ----------------------------------------------------------- private helpers
+    def _validate_template_enums(self, crv: Dict[str, Any]) -> None:
+        """Reject out-of-set enum values supplied in ``change_request_values``.
+
+        Mirrors the reference's request-body enum gate. The enum-typed template fields are nested
+        inside ``change_request_values``, so they are validated from that dict. Empty strings are
+        this category's "not provided" sentinel (ignored on update, defaulted on create), so they
+        are coerced to ``None`` and skipped by ``_check_enum`` (which already no-ops on None).
+        Note: the template channel set excludes 'web' (unlike ``incident.channel``).
+        """
+        self._check_enum("impact", crv.get("impact") or None, enums.INCIDENT_IMPACT)
+        self._check_enum("urgency", crv.get("urgency") or None, enums.INCIDENT_URGENCY)
+        self._check_enum("priority", crv.get("priority") or None, enums.INCIDENT_PRIORITY)
+        self._check_enum("category", crv.get("category") or None, enums.INCIDENT_CATEGORY)
+        self._check_enum("channel", crv.get("channel") or None, enums.TEMPLATE_CHANNEL)
+
     def _tmpl_require_service(self, service_id: Optional[str], field: str = "service") -> None:
         if service_id is not None and service_id not in self.db.service:
             raise ItsmError(f"Service with ID '{service_id}' not found", field=field)
@@ -28,6 +44,23 @@ class IncidentTemplateToolsMixin(ItsmToolsBase):
         if offering_id is not None and offering_id not in self.db.service_offering:
             raise ItsmError(
                 f"Service offering with ID '{offering_id}' not found", field=field
+            )
+
+    def _tmpl_check_offering_belongs(
+        self, service_id: Optional[str], offering_id: Optional[str]
+    ) -> None:
+        """A service_offering must belong to the named service (offering.business_service == service)."""
+        if not service_id or not offering_id:
+            return
+        offering = self.db.service_offering.get(offering_id)
+        if offering is not None and offering.business_service != service_id:
+            svc = self.db.service.get(service_id)
+            svc_name = svc.name if svc else service_id
+            raise ItsmError(
+                f"Service offering '{offering_id}' ({offering.name}) does not belong to service "
+                f"'{service_id}' ({svc_name})",
+                code="VALIDATION_ERROR",
+                field="service_offering",
             )
 
     def _name_exists(self, name: str, exclude_id: Optional[str] = None) -> bool:
@@ -64,6 +97,8 @@ class IncidentTemplateToolsMixin(ItsmToolsBase):
             The created incident template.
         """
         crv = change_request_values or {}
+        # Enum validation first (the reference validates the request body before manager FK checks).
+        self._validate_template_enums(crv)
         caller_id = crv.get("caller_id")
         short_description = crv.get("short_description")
         if caller_id is None or caller_id == "":
@@ -93,6 +128,7 @@ class IncidentTemplateToolsMixin(ItsmToolsBase):
         self._require_ci(configuration_item)
         self._tmpl_require_service(service)
         self._tmpl_require_service_offering(service_offering)
+        self._tmpl_check_offering_belongs(service, service_offering)
 
         template_id, _ = self._make_id(self.db.incident_template, "TMPL")
         now = self._now()
@@ -145,6 +181,8 @@ class IncidentTemplateToolsMixin(ItsmToolsBase):
             The updated incident template.
         """
         crv = change_request_values or {}
+        # Enum validation first (the reference validates the request body before manager FK checks).
+        self._validate_template_enums(crv)
 
         # Collect the proposed changes (post-empty-string-filtering). Each entry maps a record
         # attribute -> (new_value, is_tracked_for_no_change, format_style).
@@ -210,6 +248,13 @@ class IncidentTemplateToolsMixin(ItsmToolsBase):
                 self._tmpl_require_service(value)
             elif attr == "service_offering":
                 self._tmpl_require_service_offering(value)
+
+        # Cross-entity: the effective service_offering must belong to the effective service.
+        eff = {attr: value for attr, value, _, _ in proposed}
+        self._tmpl_check_offering_belongs(
+            eff.get("service", template.service),
+            eff.get("service_offering", template.service_offering),
+        )
 
         # Duplicate-name check (excluding the template itself).
         for attr, value, _, _ in proposed:

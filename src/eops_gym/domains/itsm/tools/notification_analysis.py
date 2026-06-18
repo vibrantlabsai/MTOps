@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.tools._base import ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
 
@@ -56,6 +57,10 @@ class NotificationAnalysisToolsMixin(ItsmToolsBase):
         Returns:
             A dict ``{"metrics": {status: count}}``.
         """
+        # The reference validates each enum-typed filter element before grouping.
+        if status is not None:
+            for value in status:
+                self._check_enum("status", value, enums.NOTIFICATION_STATUS)
         return self._count_by_field("status", status)
 
     @is_tool(ToolType.READ)
@@ -71,6 +76,10 @@ class NotificationAnalysisToolsMixin(ItsmToolsBase):
         Returns:
             A dict ``{"metrics": {type: count}}``.
         """
+        # The reference validates each enum-typed filter element before grouping.
+        if type is not None:
+            for value in type:
+                self._check_enum("type", value, enums.NOTIFICATION_TYPE)
         return self._count_by_field("type", type)
 
     @is_tool(ToolType.READ)

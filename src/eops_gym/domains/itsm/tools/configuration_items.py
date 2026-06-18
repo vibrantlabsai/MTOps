@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import ConfigurationItem
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
@@ -16,6 +17,10 @@ class ConfigurationItemToolsMixin(ItsmToolsBase):
     """Configuration item management tools."""
 
     # ------------------------------------------------------------------ helpers
+    def _validate_ci_enums(self, *, status=None) -> None:
+        """Reject out-of-set enum values, mirroring the reference's request-body enum gate."""
+        self._check_enum("status", status, enums.CI_STATUS)
+
     def _ci_require_location(self, location_id: Optional[str]) -> None:
         if location_id is not None and location_id not in self.db.location:
             raise ItsmError(
@@ -57,6 +62,8 @@ class ConfigurationItemToolsMixin(ItsmToolsBase):
         Returns:
             The newly created configuration item.
         """
+        # Enum validation first (the reference validates the request body before FK checks).
+        self._validate_ci_enums(status=status)
         # Validation order mirrors the original MCP: owner -> name -> serial -> location.
         self._require_user(owner_id, "owner_id")
         for ci in self.db.configuration_item.values():
@@ -121,6 +128,8 @@ class ConfigurationItemToolsMixin(ItsmToolsBase):
         Returns:
             The updated configuration item.
         """
+        # Enum validation first (the reference validates the request body before FK checks).
+        self._validate_ci_enums(status=status)
         ci = self.db.configuration_item.get(configuration_item_id)
         if ci is None:
             raise ItsmError(
@@ -255,6 +264,8 @@ class ConfigurationItemToolsMixin(ItsmToolsBase):
             A dict with the matching CIs under 'configuration_items' (id-descending) and their
             'total_count'.
         """
+        # The reference validates enum-typed filters too (invalid value -> error, not empty result).
+        self._validate_ci_enums(status=status)
         eq_filters = {
             "configuration_item_id": configuration_item_id, "owner_id": owner_id,
             "location_id": location_id, "serial_number": serial_number, "status": status,

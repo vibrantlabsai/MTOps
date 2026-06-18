@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import Notification
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
@@ -17,6 +18,11 @@ class NotificationToolsMixin(ItsmToolsBase):
     """Notification management tools."""
 
     # ------------------------------------------------------------------ helpers
+    def _validate_notification_enums(self, *, type=None, status=None) -> None:
+        """Reject out-of-set enum values, mirroring the reference's request-body enum gate."""
+        self._check_enum("type", type, enums.NOTIFICATION_TYPE)
+        self._check_enum("status", status, enums.NOTIFICATION_STATUS)
+
     def _acting_email(self) -> Optional[str]:
         """Email of the acting (token) user, used for the send-to-self guard."""
         if self.acting_user_id and self.acting_user_id in self.db.users:
@@ -70,6 +76,8 @@ class NotificationToolsMixin(ItsmToolsBase):
         Returns:
             The created notification.
         """
+        # Enum validation first (the reference validates the request body before FK checks).
+        self._validate_notification_enums(type=type, status=status)
         self._require_incident(incident_id)
         self._require_email_user(email)
         acting_email = self._acting_email()
@@ -123,12 +131,9 @@ class NotificationToolsMixin(ItsmToolsBase):
         Returns:
             The updated notification.
         """
+        # Enum validation first (the reference validates the request body before FK checks).
+        self._validate_notification_enums(type=type, status=status)
         notification = self._require_notification(notification_id)
-        if incident_id is not None:
-            self._require_incident(incident_id)
-        if email is not None:
-            self._require_email_user(email)
-
         updates = {
             "incident_id": incident_id,
             "email": email,
@@ -137,9 +142,19 @@ class NotificationToolsMixin(ItsmToolsBase):
             "subject": subject,
             "message": message,
         }
-        for field, value in updates.items():
-            if value is not None:
-                setattr(notification, field, value)
+        provided = {k: v for k, v in updates.items() if v is not None}
+        if not provided:
+            raise ItsmError("At least one field must be provided for update")
+        if incident_id is not None:
+            self._require_incident(incident_id)
+        if email is not None:
+            self._require_email_user(email)
+        # A no-op update (every provided field already equal) is rejected, not silently re-stamped.
+        changed = {k: v for k, v in provided.items() if getattr(notification, k) != v}
+        if not changed:
+            raise ItsmError("No changes detected", code="NO_CHANGES_DETECTED")
+        for field, value in changed.items():
+            setattr(notification, field, value)
         notification.updated_on = self._now()
         return notification
 
@@ -195,6 +210,8 @@ class NotificationToolsMixin(ItsmToolsBase):
             A mapping with the matching notifications and their count
             ({'notifications': [...], 'count': N}).
         """
+        # The reference validates enum-typed filters too (invalid value -> error, not empty result).
+        self._validate_notification_enums(type=type, status=status)
         eq_filters = {
             "notification_id": notification_id,
             "incident_id": incident_id,
