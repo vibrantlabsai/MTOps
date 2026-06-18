@@ -253,7 +253,14 @@ class ProblemToolsMixin(ItsmToolsBase):
             service_offering=service_offering, original_task=original_task,
         )
 
-        for field, value in active.items():
+        # A no-op update (every provided field already equals the stored value) is rejected.
+        changed = {k: v for k, v in active.items() if getattr(problem, k) != v}
+        if not changed:
+            raise ItsmError(
+                "No changes detected for fields: " + ", ".join(active),
+                code="NO_CHANGES_DETECTED",
+            )
+        for field, value in changed.items():
             setattr(problem, field, value)
         problem.updated_on = self._now()
         return problem

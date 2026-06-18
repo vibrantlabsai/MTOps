@@ -156,6 +156,31 @@ SCENARIOS: list[Scenario] = [
                 "change_request_values": {"service": "SVC_001", "service_offering": "SVCOFF_002"}})],
              tags=["fk"]),
 
+    # -- added from the independent (Andrew) audit, live-confirmed -------------------------------
+    # idempotency on update_incident / update_problem (a repeated identical update must error)
+    Scenario("noop_update_incident",
+             [("update_incident", {"incident_id": "INC_002", "worknotes": "conf-probe"}),
+              ("update_incident", {"incident_id": "INC_002", "worknotes": "conf-probe"})],
+             tags=["idempotency"]),
+    Scenario("noop_update_problem",
+             [("update_problem", {"problem_id": "PRB_001", "worknotes": "conf-probe"}),
+              ("update_problem", {"problem_id": "PRB_001", "worknotes": "conf-probe"})],
+             tags=["idempotency"]),
+    # duplicate detection: knowledge (title+owner), group (email)
+    Scenario("dup_knowledge_title_owner",
+             [("create_knowledge_article", {"title": "ConfDup", "owner_id": "USER_002"}),
+              ("create_knowledge_article", {"title": "ConfDup", "owner_id": "USER_002"})],
+             tags=["duplicate"]),
+    Scenario("dup_group_email",
+             [("add_new_user_group",
+               {"name": "ConfA", "type": "IT Support", "manager_id": "USER_002", "email": "cd@x.com"}),
+              ("add_new_user_group",
+               {"name": "ConfB", "type": "IT Support", "manager_id": "USER_002", "email": "cd@x.com"})],
+             tags=["duplicate"]),
+    # get_count_of_incident_priority_wise: optional priority_list (no-arg must succeed, count-all)
+    Scenario("count_priority_no_args",
+             [("get_count_of_incident_priority_wise", {})], tags=["schema"]),
+
     # -- state parity (happy path): a real-change update must produce identical DB state ---------
     Scenario("state_update_incident_fields",
              [("update_incident",

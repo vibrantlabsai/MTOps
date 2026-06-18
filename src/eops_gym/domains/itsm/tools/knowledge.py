@@ -32,6 +32,20 @@ class KnowledgeToolsMixin(ItsmToolsBase):
                 seqs.append(int(num[2:]))
         return (max(seqs) + 1) if seqs else 1
 
+    def _check_duplicate_article(
+        self, title: str, owner_id: str, org_id: str, exclude_id: Optional[str] = None
+    ) -> None:
+        """Reject a (title, owner) collision within the org (mirrors the reference DUPLICATE_ARTICLE)."""
+        for kid, art in self.db.knowledge.items():
+            if kid == exclude_id:
+                continue
+            if art.org_id == org_id and art.title == title and art.owner_id == owner_id:
+                raise ItsmError(
+                    "A knowledge article with the same title and owner already exists",
+                    code="DUPLICATE_ARTICLE",
+                    field="title",
+                )
+
     # ------------------------------------------------------------------ writes
     @is_tool(ToolType.WRITE)
     def create_knowledge_article(
@@ -61,6 +75,7 @@ class KnowledgeToolsMixin(ItsmToolsBase):
         # Enum validation first (the reference validates the request body before FK checks).
         self._validate_knowledge_enums(state=state, visibility=visibility)
         self._require_user(owner_id, "owner_id")
+        self._check_duplicate_article(title, owner_id, self._acting_org())
 
         knowledge_id, _ = self._make_id(self.db.knowledge, "KB")
         kb_seq = self._kb_number_seq(self.db.knowledge)
@@ -135,6 +150,15 @@ class KnowledgeToolsMixin(ItsmToolsBase):
             )
 
         self._require_user(owner_id, "owner_id")
+
+        # Reject a (title, owner) collision with a DIFFERENT article in the org.
+        if title is not None or owner_id is not None:
+            self._check_duplicate_article(
+                title if title is not None else article.title,
+                owner_id if owner_id is not None else article.owner_id,
+                article.org_id,
+                exclude_id=knowledge_id,
+            )
 
         # A no-op update (every provided field already equal) is rejected, not silently re-stamped.
         changed = {k: v for k, v in provided.items() if getattr(article, k) != v}

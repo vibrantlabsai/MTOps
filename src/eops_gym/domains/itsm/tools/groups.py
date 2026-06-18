@@ -93,6 +93,11 @@ class GroupToolsMixin(ItsmToolsBase):
                 f"A group with name '{name}' already exists",
                 code="DUPLICATE_GROUP_NAME", field="name",
             )
+        if email is not None and any(g.email == email for g in self.db.user_group.values()):
+            raise ItsmError(
+                f"A group with email '{email}' already exists",
+                code="DUPLICATE_GROUP_EMAIL", field="email",
+            )
 
         group_id, _ = self._make_id(self.db.user_group, "GROUP")
         now = self._now()

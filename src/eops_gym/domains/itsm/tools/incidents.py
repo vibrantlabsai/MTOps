@@ -258,9 +258,18 @@ class IncidentToolsMixin(ItsmToolsBase):
             "resolved_by": resolved_by, "on_hold_reason": on_hold_reason,
             "incident_template": incident_template, "resolved": resolved,
         }
-        for field, value in updates.items():
-            if value is not None:
-                setattr(incident, field, value)
+        # A no-op update (every provided field already equals the stored value) is rejected, not
+        # silently re-stamped — matches the reference's "no changes detected" (both text and enum
+        # fields trigger it for incidents).
+        provided = {k: v for k, v in updates.items() if v is not None}
+        changed = {k: v for k, v in provided.items() if getattr(incident, k) != v}
+        if provided and not changed:
+            raise ItsmError(
+                "No changes detected for fields: " + ", ".join(provided),
+                code="NO_CHANGES_DETECTED",
+            )
+        for field, value in changed.items():
+            setattr(incident, field, value)
         incident.updated_at = self._now()
         return incident
 
@@ -418,19 +427,32 @@ class IncidentToolsMixin(ItsmToolsBase):
         return out
 
     @is_tool(ToolType.READ)
-    def get_count_of_incident_priority_wise(self, priority_list: List[str]) -> dict:
-        """Count incidents for each priority in the given list.
+    def get_count_of_incident_priority_wise(
+        self, priority_list: Optional[List[str]] = None
+    ) -> dict:
+        """Count incidents per priority.
+
+        With a ``priority_list`` only those priorities are counted; when omitted (or empty) the
+        reference counts ALL priorities present in the data (grouped), so we do the same.
 
         Args:
-            priority_list: Priorities to count, e.g. ['high', 'critical'].
+            priority_list: Optional priorities to count, e.g. ['high', 'critical']. Omit to count
+                every priority present.
 
         Returns:
-            A mapping of each requested priority to its incident count.
+            A mapping of each priority to its incident count.
         """
-        counts = {p: 0 for p in priority_list}
+        if priority_list:
+            counts = {p: 0 for p in priority_list}
+            for inc in self.db.incident.values():
+                if inc.priority in counts:
+                    counts[inc.priority] += 1
+            return counts
+        # No list: group over all priorities present (count-all behaviour).
+        counts: dict = {}
         for inc in self.db.incident.values():
-            if inc.priority in counts:
-                counts[inc.priority] += 1
+            if inc.priority is not None:
+                counts[inc.priority] = counts.get(inc.priority, 0) + 1
         return counts
 
     @is_tool(ToolType.READ)
