@@ -54,10 +54,18 @@ class ServiceOfferingToolsMixin(ItsmToolsBase):
                 code="USER_NOT_FOUND", field=field,
             )
 
-    def _so_require_unique_name(self, name: str, exclude_id: Optional[str] = None) -> None:
-        """Raise if another service offering already uses ``name``."""
+    def _so_require_unique_name(
+        self, name: str, exclude_id: Optional[str] = None, compare_to: Optional[str] = None
+    ) -> None:
+        """Raise if another service offering already uses the name.
+
+        ``compare_to`` (defaults to ``name``) is the value matched against stored names — update
+        passes the *stripped* name here so a whitespace-padded duplicate is still detected — while
+        the raw ``name`` is echoed in the error message (mirrors the reference).
+        """
+        target = compare_to if compare_to is not None else name
         for so in self.db.service_offering.values():
-            if so.name == name and so.service_offering_id != exclude_id:
+            if so.name == target and so.service_offering_id != exclude_id:
                 raise ItsmError(
                     f"A service offering with name '{name}' already exists",
                     code="DUPLICATE_SERVICE_OFFERING_NAME", field="name",
@@ -188,10 +196,19 @@ class ServiceOfferingToolsMixin(ItsmToolsBase):
         if not provided:
             raise ItsmError("At least one field must be provided for update")
 
+        # The reference strips the free-text columns before comparing/persisting (FK columns
+        # owned_by/business_service are NOT stripped — they are validated against the raw value).
+        for field in ("name", "short_description"):
+            if field in provided and isinstance(provided[field], str):
+                provided[field] = provided[field].strip()
+
         offering = self._require_offering(service_offering_id)
 
+        # Name uniqueness compares the stripped value but echoes the raw input in the message.
         if name is not None:
-            self._so_require_unique_name(name, exclude_id=service_offering_id)
+            self._so_require_unique_name(
+                name, exclude_id=service_offering_id, compare_to=provided["name"]
+            )
         self._so_require_owner(owned_by)
         self._so_require_service(parent)
 
@@ -202,6 +219,16 @@ class ServiceOfferingToolsMixin(ItsmToolsBase):
                 f"{shown}. Please provide different values or omit unchanged fields.",
                 code="NO_CHANGES_DETECTED",
             )
+
+        # NOT NULL columns reject a value that is empty after stripping: the reference maps
+        # ''/whitespace -> None and the DB rejects it (IntegrityError surfaced as INTERNAL_ERROR).
+        for field in ("name", "short_description"):
+            if provided.get(field) == "":
+                raise ItsmError(
+                    "Failed to update service offering: NOT NULL constraint failed: "
+                    f"service_offering.{field}",
+                    code="INTERNAL_ERROR", field=field,
+                )
 
         for field, value in provided.items():
             setattr(offering, field, value)
@@ -219,11 +246,13 @@ class ServiceOfferingToolsMixin(ItsmToolsBase):
         Returns:
             The matching service offering.
         """
+        # The reference strips the name before lookup (and echoes the stripped value on a miss).
+        stripped = name.strip()
         for so in self.db.service_offering.values():
-            if so.name == name:
+            if so.name == stripped:
                 return so
         raise ItsmError(
-            f"Service Offering not found with identifier '{name}'", code="NOT_FOUND",
+            f"Service Offering not found with identifier '{stripped}'", code="NOT_FOUND",
         )
 
     @is_tool(ToolType.READ)
@@ -240,16 +269,17 @@ class ServiceOfferingToolsMixin(ItsmToolsBase):
         parent: Optional[str] = None,
         created_after: Optional[str] = None,
         created_before: Optional[str] = None,
-    ) -> List[ServiceOffering]:
+    ) -> dict:
         """List service offerings, optionally filtered. All filters are ANDed; omitted ignored.
 
-        ``name`` and ``short_description`` are partial, case-insensitive matches; the remaining
-        filters are exact. ``parent`` matches the stored business service.
+        ``name``, ``short_description``, ``owned_by`` and ``parent`` are partial,
+        case-insensitive matches; the remaining filters are exact. ``parent`` matches the stored
+        business service.
 
         Args:
             service_offering_id: Filter by service offering id (exact match).
             name: Filter by name (partial, case-insensitive).
-            owned_by: Filter by owner user id.
+            owned_by: Filter by owner user id (partial, case-insensitive).
             used_for: Filter by usage (production, QA, test, development).
             status: Filter by status (operational, non-operational, repair_in_progress, ready,
                 retired).
@@ -258,42 +288,50 @@ class ServiceOfferingToolsMixin(ItsmToolsBase):
             business_criticality: Filter by criticality (critical, somewhat-critical,
                 less-critical, not-critical).
             short_description: Filter by short description (partial, case-insensitive).
-            parent: Filter by parent business service id.
-            created_after: Only offerings created on/after this ISO 8601 timestamp.
+            parent: Filter by parent business service id (partial, case-insensitive).
+            created_after: Only offerings created strictly after this ISO 8601 timestamp.
             created_before: Only offerings created on/before this ISO 8601 timestamp.
 
         Returns:
-            The list of matching service offerings.
+            A dict with the matching offerings under 'service_offerings' (created_on-descending)
+            and their 'total_count'.
         """
         # The reference validates enum-typed filters too (invalid value -> error, not empty result).
         self._validate_service_offering_enums(
             status=status, service_classification=service_classification,
             business_criticality=business_criticality, used_for=used_for,
         )
-        # exact-match filters mapped to stored attribute names
+        # exact-match filters mapped to stored attribute names (id + enum-typed columns)
         eq_filters = {
             "service_offering_id": service_offering_id,
-            "owned_by": owned_by,
             "used_for": used_for,
             "status": status,
             "service_classification": service_classification,
             "business_criticality": business_criticality,
-            "business_service": parent,
         }
         active = {k: v for k, v in eq_filters.items() if v is not None}
         out: List[ServiceOffering] = []
         for so in self.db.service_offering.values():
             if any(getattr(so, attr) != val for attr, val in active.items()):
                 continue
+            # owned_by / parent are substring (LIKE), case-insensitive — not exact.
             if name is not None and name.lower() not in (so.name or "").lower():
                 continue
             if short_description is not None and (
                 short_description.lower() not in (so.short_description or "").lower()
             ):
                 continue
-            if created_after is not None and (so.created_on or "") < created_after:
+            if owned_by is not None and owned_by.lower() not in (so.owned_by or "").lower():
+                continue
+            if parent is not None and parent.lower() not in (so.business_service or "").lower():
+                continue
+            # created_after is exclusive of the boundary; created_before is inclusive (live server).
+            if created_after is not None and (so.created_on or "") <= created_after:
                 continue
             if created_before is not None and (so.created_on or "") > created_before:
                 continue
             out.append(so)
-        return out
+        # Mirror the reference's ``ORDER BY created_on DESC``; ties fall back to id-descending so
+        # ordering stays deterministic where timestamps coincide.
+        out.sort(key=lambda s: (s.created_on or "", s.service_offering_id), reverse=True)
+        return {"service_offerings": out, "total_count": len(out)}
