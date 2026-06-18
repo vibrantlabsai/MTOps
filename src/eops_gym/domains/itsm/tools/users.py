@@ -8,6 +8,7 @@ and ``update_user_details`` accepts but never stores the ``user_name`` / ``compa
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import datetime
 from typing import List, Optional
 
@@ -15,6 +16,11 @@ from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import User
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
+
+# Email format gate for get_user_using_email (mirrors the reference's pre-lookup validation:
+# malformed addresses are rejected with INVALID_EMAIL_FORMAT before any DB lookup). The reference
+# requires a TLD of at least 2 chars (e.g. 'a@b.c' / 'x@y.z' are rejected; 'a@b.co' is accepted).
+_USR_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
 
 
 class UserToolsMixin(ItsmToolsBase):
@@ -206,13 +212,12 @@ class UserToolsMixin(ItsmToolsBase):
             self._usr_require_location(location_id)
 
         # Change detection: every provided value matching current -> reject.
+        # The reference surfaces a fixed top-level message (the per-field detail lives in a nested
+        # detail the gym does not model); code is NO_CHANGES_DETECTED.
         changed = {k: v for k, v in provided.items() if getattr(user, k) != v}
         if not changed:
-            unchanged = ", ".join(
-                f"{k} (already '{getattr(user, k)}')" for k in provided
-            )
             raise ItsmError(
-                f"No changes detected for fields: {unchanged}",
+                "No changes detected - all provided values are the same as current values",
                 code="NO_CHANGES_DETECTED", field=None,
             )
 
@@ -244,12 +249,21 @@ class UserToolsMixin(ItsmToolsBase):
     def get_user_using_email(self, email: str) -> User:
         """Return the user with the given email address.
 
+        The email is format-validated first; a malformed address is rejected before lookup.
+
         Args:
             email: User's email address.
 
         Returns:
             The matching user.
         """
+        # The reference validates email FORMAT first; a malformed address is rejected with
+        # INVALID_EMAIL_FORMAT before any lookup (so it never falls through to NOT_FOUND).
+        if not _USR_EMAIL_RE.match(email or ""):
+            raise ItsmError(
+                f"Invalid email format provided: '{email}'",
+                code="INVALID_EMAIL_FORMAT", field="email",
+            )
         for user in self.db.users.values():
             if user.email == email:
                 return user
@@ -292,6 +306,9 @@ class UserToolsMixin(ItsmToolsBase):
         created_before: Optional[str] = None,
     ) -> dict:
         """List users, optionally filtered. Empty-string filters are ignored.
+
+        Results are ordered by created_on ascending and each user is returned as a serialized
+        dict (the static auth token is omitted).
 
         Args:
             email: Filter by email address (exact match).
@@ -340,4 +357,10 @@ class UserToolsMixin(ItsmToolsBase):
                 if created is None or not (created <= before_dt):
                     continue
             out.append(user)
-        return {"users": out, "total_count": len(out)}
+        # The reference orders results by created_on ascending (stable for equal timestamps) and
+        # serializes each row via to_dict(), which omits the secret static_token field.
+        out.sort(key=lambda u: (u.created_on or ""))
+        return {
+            "users": [u.model_dump(exclude={"static_token"}) for u in out],
+            "total_count": len(out),
+        }
