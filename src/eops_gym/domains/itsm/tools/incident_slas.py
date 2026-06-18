@@ -6,6 +6,7 @@ Covers incident-SLA CRUD/search plus the stage-wise breached count aggregate. Th
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from eops_gym.domains.itsm import enums
@@ -43,6 +44,88 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
             )
         return record
 
+    def _require_incident_fk(self, incident_id: str) -> None:
+        """Incident FK existence with the reference's exact message.
+
+        The shared ``_require_incident`` raises ``Incident with ID '<id>' not found``; the
+        incident-SLA manager raises ``Incident '<id>' not found`` (no "with ID"). We keep a local
+        check so this category matches the reference wording without touching the shared helper.
+        """
+        if incident_id not in self.db.incident:
+            raise ItsmError(f"Incident '{incident_id}' not found", field="incident_id")
+
+    @staticmethod
+    def _normalize_sla_ts(value: Optional[str]) -> Optional[str]:
+        """Normalize a stored ISO timestamp to naive-UTC isoformat, mirroring the reference.
+
+        The reference parses every persisted timestamp and converts it to naive UTC: a trailing
+        'Z' or an explicit offset is converted to UTC and the tzinfo dropped (e.g.
+        '2024-05-02T08:30:00+05:30' -> '2024-05-02T03:00:00'; '...Z' -> the same instant without
+        'Z'). Naive inputs round-trip unchanged. ``None`` passes through; an unparseable value is
+        returned verbatim (the live schema layer rejects those upstream, so this never persists junk
+        beyond what the port already accepted).
+        """
+        if value is None:
+            return None
+        try:
+            dt = datetime.fromisoformat(value)
+        except (ValueError, TypeError):
+            return value
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt.isoformat()
+
+    @staticmethod
+    def _render_sla_filter_ts(value: str) -> str:
+        """Render a filter timestamp the way the reference's not-found identifier does.
+
+        Unlike persisted values, delete-filter timestamps are parsed by the request schema and
+        stringified WITHOUT UTC conversion: tz-aware inputs keep their offset and the 'T' becomes a
+        space (e.g. '2020-01-01T00:00:00+05:30' -> '2020-01-01 00:00:00+05:30'). Unparseable values
+        are returned verbatim.
+        """
+        try:
+            return str(datetime.fromisoformat(value))
+        except (ValueError, TypeError):
+            return value
+
+    def _delete_not_found_identifier(
+        self,
+        incident_sla_id: Optional[str],
+        incident_id: Optional[str],
+        sla_def_id: Optional[str],
+        stage: Optional[str],
+        has_breached: Optional[bool],
+        created_before: Optional[str],
+        created_after: Optional[str],
+    ) -> str:
+        """Build the comma-joined ``key=value`` identifier for a zero-match delete error.
+
+        Mirrors the reference: provided filters are rendered in signature order using ``repr`` of
+        the (raw) value — so strings keep their quotes, booleans render as ``True``/``False``, and
+        the un-normalized ``stage`` is shown verbatim. Timestamps are parsed/stringified via
+        :meth:`_render_sla_filter_ts` before the ``repr``.
+        """
+        parts: List[str] = []
+        for key, value in (
+            ("incident_sla_id", incident_sla_id),
+            ("incident_id", incident_id),
+            ("sla_def_id", sla_def_id),
+            ("stage", stage),
+            ("has_breached", has_breached),
+            (
+                "created_before",
+                self._render_sla_filter_ts(created_before) if created_before is not None else None,
+            ),
+            (
+                "created_after",
+                self._render_sla_filter_ts(created_after) if created_after is not None else None,
+            ),
+        ):
+            if value is not None:
+                parts.append(f"{key}={value!r}")
+        return ", ".join(parts)
+
     # ------------------------------------------------------------------ writes
     @is_tool(ToolType.WRITE)
     def link_new_incident_sla(
@@ -76,7 +159,7 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
         if start_time is not None and not start_time.strip():
             raise ItsmError("start_time cannot be empty", field="start_time")
         # Order mirrors the original MCP: incident FK -> sla_def FK -> uniqueness -> stage.
-        self._require_incident(incident_id)
+        self._require_incident_fk(incident_id)
         self._require_sla_def(sla_def_id)
         org_id = self._acting_org()
         for record in self.db.incident_sla.values():
@@ -90,6 +173,10 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
                     field="sla_def_id",
                 )
         stage = self._normalize_stage(stage)
+        # The reference normalizes every persisted timestamp to naive UTC (see _normalize_sla_ts).
+        start_time = self._normalize_sla_ts(start_time)
+        breach_time = self._normalize_sla_ts(breach_time)
+        completed_time = self._normalize_sla_ts(completed_time)
 
         incident_sla_id, _ = self._make_id(self.db.incident_sla, "TSLA")
         now = self._now()
@@ -141,6 +228,11 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
         # both rejected, matching the reference.
         record = self._require_incident_sla(incident_sla_id)
         stage = self._normalize_stage(stage)
+        # Normalize timestamps to naive UTC (matches the reference) BEFORE no-op detection so a
+        # re-supplied equivalent timestamp (e.g. '...Z') is correctly seen as "no change".
+        start_time = self._normalize_sla_ts(start_time)
+        breach_time = self._normalize_sla_ts(breach_time)
+        completed_time = self._normalize_sla_ts(completed_time)
         updates = {
             "incident_id": incident_id,
             "sla_def_id": sla_def_id,
@@ -154,7 +246,7 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
         if not provided:
             raise ItsmError("At least one field must be provided for update")
         if incident_id is not None:
-            self._require_incident(incident_id)
+            self._require_incident_fk(incident_id)
         if sla_def_id is not None:
             self._require_sla_def(sla_def_id)
         # Re-check the (org, incident, sla_def) uniqueness if either side of the pair changes.
@@ -172,9 +264,20 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
                         f"SLA '{new_sla_def}' is already linked to incident '{new_incident}'",
                         field="sla_def_id",
                     )
-        changed = {k: v for k, v in provided.items() if getattr(record, k) != v}
+        # Field-by-field change detection. The reference compares the parsed (string) stage against
+        # the stored Enum member, so a supplied ``stage`` is ALWAYS counted as a change even when its
+        # value is unchanged (verified live: a stage-only no-op SUCCEEDS, while a
+        # has_breached / timestamp / id no-op raises). Every other field counts only when its new
+        # value differs from the current one.
+        changed = {
+            k: v
+            for k, v in provided.items()
+            if k == "stage" or getattr(record, k) != v
+        }
         if not changed:
-            raise ItsmError("No changes detected", code="NO_CHANGES_DETECTED")
+            # Bare ValueError in the reference -> generic VALIDATION_ERROR envelope (verified live),
+            # not the NO_CHANGES_DETECTED code some other categories use.
+            raise ItsmError("No changes detected for the provided incident SLA fields")
         for field, value in changed.items():
             setattr(record, field, value)
         record.updated_on = self._now()
@@ -215,7 +318,9 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
                       created_before, created_after)
         ):
             raise ItsmError("At least one filter must be provided", code="VALIDATION_ERROR")
-        stage = self._normalize_stage(stage)
+        # Validate/normalize the stage for matching, but keep the RAW value for the not-found
+        # identifier (the reference renders the un-normalized filter there, e.g. stage='Paused').
+        normalized_stage = self._normalize_stage(stage)
         to_remove: List[str] = []
         for record_id, record in self.db.incident_sla.items():
             if incident_sla_id is not None and record_id != incident_sla_id:
@@ -224,7 +329,7 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
                 continue
             if sla_def_id is not None and record.sla_def_id != sla_def_id:
                 continue
-            if stage is not None and record.stage != stage:
+            if normalized_stage is not None and record.stage != normalized_stage:
                 continue
             if has_breached is not None and record.has_breached != has_breached:
                 continue
@@ -233,6 +338,16 @@ class IncidentSLAToolsMixin(ItsmToolsBase):
             if created_after is not None and (record.created_on or "") < created_after:
                 continue
             to_remove.append(record_id)
+        # Zero match is a 404 in the reference (router), not a silent {deleted_count: 0} success.
+        if not to_remove:
+            identifier = self._delete_not_found_identifier(
+                incident_sla_id, incident_id, sla_def_id, stage, has_breached,
+                created_before, created_after,
+            )
+            raise ItsmError(
+                f"Incident SLA record not found with identifier '{identifier}'",
+                code="NOT_FOUND",
+            )
         for record_id in to_remove:
             del self.db.incident_sla[record_id]
         return {"deleted_count": len(to_remove)}
