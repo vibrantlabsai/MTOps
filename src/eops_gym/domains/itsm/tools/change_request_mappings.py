@@ -21,9 +21,23 @@ class ChangeRequestMappingToolsMixin(ItsmToolsBase):
         if change_id not in self.db.change:
             raise ItsmError(f"Change '{change_id}' not found", field="change_id")
 
+    def _crm_require_incident(self, incident_id: str) -> None:
+        # Local existence check: the change-request-mapping manager raises
+        # "Incident '<id>' not found" (no "with ID"), unlike _base._require_incident.
+        if incident_id not in self.db.incident:
+            raise ItsmError(f"Incident '{incident_id}' not found", field="incident_id")
+
     def _crm_require_problem(self, problem_id: str) -> None:
         if problem_id not in self.db.problem:
             raise ItsmError(f"Problem '{problem_id}' not found", field="problem_id")
+
+    @staticmethod
+    def _crm_sort_desc(
+        mappings: List[ChangeRequestMapping],
+    ) -> List[ChangeRequestMapping]:
+        # Mirror the manager's order_by(created_at.desc()). ISO-8601 timestamps sort
+        # lexicographically == chronologically; sorted() is stable for ties.
+        return sorted(mappings, key=lambda m: m.created_at or "", reverse=True)
 
     # ------------------------------------------------------------------ writes
     @is_tool(ToolType.WRITE)
@@ -56,7 +70,7 @@ class ChangeRequestMappingToolsMixin(ItsmToolsBase):
         # Existence validation: change first, then incident, then problem.
         self._crm_require_change(change_id)
         if incident_id is not None:
-            self._require_incident(incident_id)
+            self._crm_require_incident(incident_id)
         if problem_id is not None:
             self._crm_require_problem(problem_id)
 
@@ -213,6 +227,7 @@ class ChangeRequestMappingToolsMixin(ItsmToolsBase):
             if created_before is not None and (m.created_at or "") > created_before:
                 continue
             out.append(m)
+        out = self._crm_sort_desc(out)
         return {
             "change_request_mappings": out,
             "total_count": len(out),
@@ -228,9 +243,11 @@ class ChangeRequestMappingToolsMixin(ItsmToolsBase):
         Returns:
             A dict with the matching mappings and a total_count.
         """
-        self._require_incident(incident_id)
-        out = [m for m in self.db.change_request_mapping.values()
-               if m.incident_id == incident_id]
+        self._crm_require_incident(incident_id)
+        out = self._crm_sort_desc(
+            [m for m in self.db.change_request_mapping.values()
+             if m.incident_id == incident_id]
+        )
         return {
             "change_request_mappings": out,
             "total_count": len(out),
@@ -247,8 +264,10 @@ class ChangeRequestMappingToolsMixin(ItsmToolsBase):
             A dict with the matching mappings and a total_count.
         """
         self._crm_require_problem(problem_id)
-        out = [m for m in self.db.change_request_mapping.values()
-               if m.problem_id == problem_id]
+        out = self._crm_sort_desc(
+            [m for m in self.db.change_request_mapping.values()
+             if m.problem_id == problem_id]
+        )
         return {
             "change_request_mappings": out,
             "total_count": len(out),
