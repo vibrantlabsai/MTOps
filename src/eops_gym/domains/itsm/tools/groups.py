@@ -188,7 +188,9 @@ class GroupToolsMixin(ItsmToolsBase):
 
         unchanged = {k: v for k, v in provided.items() if getattr(group, k) == v}
         if len(unchanged) == len(provided):
-            same = ", ".join(f"{k}={v!r}" for k, v in provided.items())
+            # The reference renders every value string-coerced (e.g. active -> 'True'), so quote
+            # the str() form rather than the raw repr (which would print a bare True for bools).
+            same = ", ".join(f"{k}={str(v)!r}" for k, v in provided.items())
             raise ItsmError(
                 "No changes detected. All provided fields already have the same values: "
                 f"{same}. Please provide different values or omit unchanged fields.",
