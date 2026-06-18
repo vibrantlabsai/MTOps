@@ -42,6 +42,23 @@ class IncidentKnowledgeToolsMixin(ItsmToolsBase):
             )
         return kb
 
+    def _require_incident_link(self, incident_id: str, field: str = "incident_id"):
+        """Local incident-existence check for linking.
+
+        Mirrors the reference's incident-not-found error for this category
+        (``RESOURCE_NOT_FOUND`` / ``"Incident '<id>' not found"``), which differs from
+        the shared ``_require_incident`` helper (``VALIDATION_ERROR`` /
+        ``"Incident with ID '<id>' not found"``). Defined locally so the shared helper
+        — used by other categories with their own verdicts — is left untouched.
+        """
+        inc = self.db.incident.get(incident_id)
+        if inc is None:
+            raise ItsmError(
+                f"Incident '{incident_id}' not found",
+                code="RESOURCE_NOT_FOUND", field=field,
+            )
+        return inc
+
     @staticmethod
     def _parse_used_as(used_as: str) -> List[str]:
         """Split a single/comma-separated ``used_as`` filter into validated lowercase values."""
@@ -115,18 +132,38 @@ class IncidentKnowledgeToolsMixin(ItsmToolsBase):
             The created incident-knowledge link.
         """
         self._validate_used_as(used_as=used_as)
-        incident = self._require_incident(incident_id)
-        self._require_knowledge(knowledge_id)
+        incident = self._require_incident_link(incident_id)
+        kb = self._require_knowledge(knowledge_id)
 
         org_id = incident.org_id
+        # The reference enforces two distinct duplicate behaviours for the same
+        # incident+knowledge pair:
+        #   1. App-layer check filters on the *raw* used_as (manager
+        #      ``.filter(incident_id, knowledge_id, used_as)``): an exact
+        #      (incident, knowledge, used_as) triple match raises DUPLICATE_LINK with a
+        #      friendly message. An omitted used_as (None) never matches a stored row
+        #      (stored used_as is always set), so it falls through to (2).
+        #   2. DB-level UNIQUE(org_id, incident_id, knowledge_id) constraint: a second
+        #      link for the same pair under a *different* used_as raises a raw
+        #      CONSTRAINT_VIOLATION. (Live-verified: re-linking under a different
+        #      used_as is blocked, refuting the "uniqueness ignores used_as" claim.)
+        # At most one row exists per (org_id, incident_id, knowledge_id) pair, so the
+        # first matching row decides which branch fires.
         for link in self.db.incident_knowledge.values():
-            if (link.org_id == org_id and link.incident_id == incident_id
+            if not (link.org_id == org_id and link.incident_id == incident_id
                     and link.knowledge_id == knowledge_id):
+                continue
+            if link.used_as == used_as:
                 raise ItsmError(
-                    "UNIQUE constraint failed: incident_knowledge.org_id, "
-                    "incident_knowledge.incident_id, incident_knowledge.knowledge_id",
-                    code="CONSTRAINT_VIOLATION",
+                    f"Knowledge article {kb.kb_number} is already linked to "
+                    f"incident {incident.number} as '{used_as}'",
+                    code="DUPLICATE_LINK",
                 )
+            raise ItsmError(
+                "UNIQUE constraint failed: incident_knowledge.org_id, "
+                "incident_knowledge.incident_id, incident_knowledge.knowledge_id",
+                code="CONSTRAINT_VIOLATION",
+            )
 
         incident_kb_id, _ = self._make_id(self.db.incident_knowledge, "IKB")
         now = self._now()
