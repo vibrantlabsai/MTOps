@@ -204,9 +204,11 @@ class UserToolsMixin(ItsmToolsBase):
         if phone is not None and phone != user.phone:
             for u in self.db.users.values():
                 if u.user_id != user_id and u.phone == phone:
+                    # The reference surfaces a phone collision on update as the DB-constraint error
+                    # (the email path stays INTERNAL_ERROR, matching the reference).
                     raise ItsmError(
-                        f"Failed to update user: A user with phone '{phone}' already exists",
-                        code="INTERNAL_ERROR", field=None,
+                        "Failed to update user due to database constraint",
+                        code="DATABASE_ERROR", field=None,
                     )
         if location_id is not None and location_id != user.location_id:
             self._usr_require_location(location_id)
