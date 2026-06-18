@@ -32,6 +32,21 @@ class KnowledgeToolsMixin(ItsmToolsBase):
                 seqs.append(int(num[2:]))
         return (max(seqs) + 1) if seqs else 1
 
+    def _require_owner(self, owner_id: Optional[str]) -> None:
+        """Owner-FK existence check using the reference's ``USER_NOT_FOUND`` code.
+
+        The shared ``_require_user`` helper raises the right message/field but with the base
+        ``VALIDATION_ERROR`` code; the live knowledge endpoints surface owner-not-found as
+        ``USER_NOT_FOUND`` (confirmed live on both create and update). Defined locally to avoid
+        editing the shared base.
+        """
+        if owner_id is not None and owner_id not in self.db.users:
+            raise ItsmError(
+                f"User with ID '{owner_id}' not found",
+                code="USER_NOT_FOUND",
+                field="owner_id",
+            )
+
     def _check_duplicate_article(
         self, title: str, owner_id: str, org_id: str, exclude_id: Optional[str] = None
     ) -> None:
@@ -74,7 +89,7 @@ class KnowledgeToolsMixin(ItsmToolsBase):
         """
         # Enum validation first (the reference validates the request body before FK checks).
         self._validate_knowledge_enums(state=state, visibility=visibility)
-        self._require_user(owner_id, "owner_id")
+        self._require_owner(owner_id)
         self._check_duplicate_article(title, owner_id, self._acting_org())
 
         knowledge_id, _ = self._make_id(self.db.knowledge, "KB")
@@ -149,7 +164,7 @@ class KnowledgeToolsMixin(ItsmToolsBase):
                 field=None,
             )
 
-        self._require_user(owner_id, "owner_id")
+        self._require_owner(owner_id)
 
         # Reject a (title, owner) collision with a DIFFERENT article in the org.
         if title is not None or owner_id is not None:
