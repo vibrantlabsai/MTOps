@@ -47,6 +47,22 @@ class GroupToolsMixin(ItsmToolsBase):
                 return True
         return False
 
+    def _raise_collected(self, errors: "list[tuple[str, str, Optional[str]]]") -> None:
+        """Surface accumulated create-validation failures the way the reference does.
+
+        The reference's create path collects every business-rule failure rather than
+        short-circuiting on the first: a lone failure is raised with its own code/message,
+        while two or more are aggregated under a single ``VALIDATION_ERROR`` /
+        "One or more validation errors occurred" envelope (each ``errors`` tuple is
+        ``(code, message, field)``).
+        """
+        if not errors:
+            return
+        if len(errors) == 1:
+            code, message, field = errors[0]
+            raise ItsmError(message, code=code, field=field)
+        raise ItsmError("One or more validation errors occurred", code="VALIDATION_ERROR")
+
     @staticmethod
     def _normalize_ts(value: Optional[str]) -> str:
         """SQLite stores ``created_on`` with a space separator; our records use 'T'.
@@ -80,24 +96,38 @@ class GroupToolsMixin(ItsmToolsBase):
         Returns:
             The newly created user group.
         """
-        # Enum validation first (the reference validates the request body before manager FK checks).
+        # Request-body validation (the reference's pydantic gate) runs before the business
+        # rule checks below: invalid enum value, then empty email are rejected outright.
         self._validate_group_enums(type=type)
-        manager = self._require_user_exists(manager_id, field="manager_id")
-        if manager.role != "manager":
-            raise ItsmError(
-                f"User '{manager_id}' does not have manager role (current role: {manager.role})",
-                code="INVALID_MANAGER_ROLE", field="manager_id",
-            )
+        if email is not None and email.strip() == "":
+            raise ItsmError("Email cannot be empty", code="VALIDATION_ERROR", field="email")
+        # The reference normalizes empty free-text fields to NULL before persisting.
+        if description == "":
+            description = None
+
+        # The reference accumulates ALL business-rule failures and surfaces them together,
+        # in this fixed order: name-dup, email-dup, manager-exists, manager-role.
+        errors: "list[tuple[str, str, Optional[str]]]" = []
         if self._name_in_use(name):
-            raise ItsmError(
-                f"A group with name '{name}' already exists",
-                code="DUPLICATE_GROUP_NAME", field="name",
+            errors.append(
+                ("DUPLICATE_GROUP_NAME", f"A group with name '{name}' already exists", "name")
             )
         if email is not None and any(g.email == email for g in self.db.user_group.values()):
-            raise ItsmError(
-                f"A group with email '{email}' already exists",
-                code="DUPLICATE_GROUP_EMAIL", field="email",
+            errors.append(
+                ("DUPLICATE_GROUP_EMAIL", f"A group with email '{email}' already exists", "email")
             )
+        manager = self.db.users.get(manager_id)
+        if manager is None:
+            errors.append(
+                ("MANAGER_NOT_FOUND", f"User with ID '{manager_id}' not found", "manager_id")
+            )
+        elif manager.role != "manager":
+            errors.append((
+                "INVALID_MANAGER_ROLE",
+                f"User '{manager_id}' does not have manager role (current role: {manager.role})",
+                "manager_id",
+            ))
+        self._raise_collected(errors)
 
         group_id, _ = self._make_id(self.db.user_group, "GROUP")
         now = self._now()
@@ -226,10 +256,22 @@ class GroupToolsMixin(ItsmToolsBase):
 
         if member_id:
             target = self.db.user_group_member.get(member_id)
-            if target is None or target.group_id != group_id or target.user_id != user_id:
+            # The reference distinguishes these three cases (the first maps to NOT_FOUND/404,
+            # the other two to VALIDATION_ERROR) rather than collapsing them into one error.
+            if target is None:
                 raise ItsmError(
                     f"Group member not found with identifier '{member_id}'",
                     code="NOT_FOUND", field="member_id",
+                )
+            if target.group_id != group_id:
+                raise ItsmError(
+                    f"Member '{member_id}' does not belong to group '{group_id}'",
+                    code="VALIDATION_ERROR",
+                )
+            if target.user_id != user_id:
+                raise ItsmError(
+                    f"Member '{member_id}' does not belong to user '{user_id}'",
+                    code="VALIDATION_ERROR",
                 )
             del self.db.user_group_member[member_id]
             return {"message": "Group membership removed successfully"}
