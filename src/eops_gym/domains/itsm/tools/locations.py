@@ -121,8 +121,9 @@ class LocationToolsMixin(ItsmToolsBase):
         """Update specific fields of an existing location.
 
         At least one field besides location_id must be provided. If every provided value
-        already equals the current value, an error is raised (idempotency check). City and
-        country cannot be set to empty strings.
+        already equals the current value, an error is raised (idempotency check). name, city,
+        and country are whitespace-trimmed before validation/compare/store and cannot be set to
+        empty (or whitespace-only) strings.
 
         Args:
             location_id: Unique identifier of the location to update.
@@ -145,6 +146,14 @@ class LocationToolsMixin(ItsmToolsBase):
         if not provided:
             raise ItsmError("At least one field must be provided for update", field="location_id")
 
+        # The reference strips leading/trailing whitespace from name/city/country before
+        # validating, comparing (no-changes), and storing. plot_no/street/state are stored raw.
+        for _field in ("name", "city", "country"):
+            if _field in provided:
+                provided[_field] = provided[_field].strip()
+
+        if "name" in provided and provided["name"] == "":
+            raise ItsmError("Name cannot be empty", field="name")
         if "city" in provided and provided["city"] == "":
             raise ItsmError("City cannot be empty", field="city")
         if "country" in provided and provided["country"] == "":
@@ -184,17 +193,22 @@ class LocationToolsMixin(ItsmToolsBase):
     def find_location_by_given_name(self, name: str) -> Location:
         """Find a location by its exact name (case-sensitive).
 
+        Leading/trailing whitespace on the supplied name is trimmed before lookup, mirroring
+        the reference's name-route normalization.
+
         Args:
             name: Name of the location to find.
 
         Returns:
             The matching location.
         """
+        lookup = name.strip()
         for loc in self.db.location.values():
-            if loc.name == name:
+            if loc.name == lookup:
                 return loc
+        identifier = lookup if lookup else "empty name"
         raise ItsmError(
-            f"Location not found with identifier '{name}'",
+            f"Location not found with identifier '{identifier}'",
             code="RESOURCE_NOT_FOUND", field="name",
         )
 

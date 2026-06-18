@@ -8,12 +8,24 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from eops_gym.domains.itsm.enums import SLA_APPLIES_TO_PRIORITY
 from eops_gym.domains.itsm.tools._base import ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
 
 
 class SLAMetricToolsMixin(ItsmToolsBase):
     """SLA metric aggregation tools."""
+
+    def _validate_priorities(self, priority: Optional[List[str]]) -> None:
+        """Reject any requested priority outside the canonical SLA set.
+
+        The reference validates ``priority`` at the request boundary (case-sensitive) against the
+        SLA priority enum ``{critical, high, moderate, low}`` and rejects anything else (e.g.
+        ``urgent``, ``planning``, or a wrong-case ``CRITICAL``) before computing any metric. An
+        omitted/empty list is allowed (no items to validate).
+        """
+        for p in priority or []:
+            self._check_enum("priority", p, SLA_APPLIES_TO_PRIORITY)
 
     def _target_mins_for(self, priority_upper: str) -> List[int]:
         """target_mins of every sla_definition whose applies_to_priority equals the key.
@@ -35,12 +47,14 @@ class SLAMetricToolsMixin(ItsmToolsBase):
 
         Args:
             priority: Optional list of priorities to filter by. Accepted values: critical, high,
-                moderate, low. When omitted, the metrics object is empty.
+                moderate, low (case-sensitive; any other value is rejected). When omitted, the
+                metrics object is empty.
 
         Returns:
             An object ``{"metrics": {<PRIORITY>: sum}}`` keyed by the uppercased priority, where
             each value is the summed target minutes of matching SLA definitions.
         """
+        self._validate_priorities(priority)
         metrics: dict = {}
         for p in priority or []:
             key = p.upper()
@@ -55,13 +69,15 @@ class SLAMetricToolsMixin(ItsmToolsBase):
 
         Args:
             priority: Optional list of priorities to filter by. Accepted values: critical, high,
-                moderate, low. When omitted, the metrics object is empty.
+                moderate, low (case-sensitive; any other value is rejected). When omitted, the
+                metrics object is empty.
 
         Returns:
             An object ``{"metrics": {<PRIORITY>: average}}`` keyed by the uppercased priority,
             where each value is the average target minutes of matching SLA definitions rounded to
             two decimal places (0.0 when there are no matches).
         """
+        self._validate_priorities(priority)
         metrics: dict = {}
         for p in priority or []:
             key = p.upper()

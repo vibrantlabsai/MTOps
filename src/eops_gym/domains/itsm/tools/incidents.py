@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import ChildIncident, Incident
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
@@ -15,6 +16,77 @@ from eops_gym.environment.toolkit import ToolType, is_tool
 
 class IncidentToolsMixin(ItsmToolsBase):
     """Incident management tools."""
+
+    # ------------------------------------------------------------------ helpers
+    def _validate_incident_enums(
+        self,
+        *,
+        status=None,
+        category=None,
+        impact=None,
+        urgency=None,
+        priority=None,
+        channel=None,
+        on_hold_reason=None,
+        resolution_code=None,
+    ) -> None:
+        """Reject out-of-set enum values, mirroring the reference's request-body enum gate."""
+        self._check_enum("status", status, enums.INCIDENT_STATUS)
+        self._check_enum("category", category, enums.INCIDENT_CATEGORY)
+        self._check_enum("impact", impact, enums.INCIDENT_IMPACT)
+        self._check_enum("urgency", urgency, enums.INCIDENT_URGENCY)
+        self._check_enum("priority", priority, enums.INCIDENT_PRIORITY)
+        self._check_enum("channel", channel, enums.INCIDENT_CHANNEL)
+        self._check_enum("on_hold_reason", on_hold_reason, enums.INCIDENT_ON_HOLD_REASON)
+        self._check_enum("resolution_code", resolution_code, enums.INCIDENT_RESOLUTION_CODE)
+
+    @staticmethod
+    def _blank_to_none(value: Optional[str]) -> Optional[str]:
+        """Map an empty-string FK value to ``None`` (the reference's ``normalize_field``)."""
+        return None if value == "" else value
+
+    def _collect_ref_errors(
+        self,
+        *,
+        caller_id: Optional[str] = None,
+        assigned_to: Optional[str] = None,
+        assignment_group: Optional[str] = None,
+        resolved_by: Optional[str] = None,
+        service: Optional[str] = None,
+        service_offering: Optional[str] = None,
+        configuration_item: Optional[str] = None,
+        problem: Optional[str] = None,
+        change_request: Optional[str] = None,
+        caused_by_change: Optional[str] = None,
+        incident_template: Optional[str] = None,
+    ) -> List[str]:
+        """Validate every referenced entity, collecting ALL errors in the reference's order.
+
+        Mirrors the original manager's ``_validate_referenced_entities``, which appends each bad
+        reference to a list and raises one combined ``ValueError`` — vs. the port's old fail-fast
+        (which stopped at the first bad ref). ``parent_incident`` is intentionally absent: the
+        reference normalizes it but does not existence-check it.
+        """
+        checks = (
+            (self._require_user, caller_id, "caller_id"),
+            (self._require_user, assigned_to, "assigned_to"),
+            (self._require_group, assignment_group, "assignment_group"),
+            (self._require_user, resolved_by, "resolved_by"),
+            (self._require_service, service, "service"),
+            (self._require_service_offering, service_offering, "service_offering"),
+            (self._require_ci, configuration_item, "configuration_item"),
+            (self._require_problem, problem, "problem"),
+            (self._require_change, change_request, "change_request"),
+            (self._require_change, caused_by_change, "caused_by_change"),
+            (self._require_incident_template, incident_template, "incident_template"),
+        )
+        errors: List[str] = []
+        for check, value, field in checks:
+            try:
+                check(value, field)
+            except ItsmError as exc:
+                errors.append(str(exc))
+        return errors
 
     # ------------------------------------------------------------------ writes
     @is_tool(ToolType.WRITE)
@@ -80,11 +152,38 @@ class IncidentToolsMixin(ItsmToolsBase):
         Returns:
             The created incident.
         """
-        self._require_user(caller_id, "caller_id")
-        self._require_user(assigned_to, "assigned_to")
-        self._require_user(resolved_by, "resolved_by")
-        self._require_group(assignment_group)
-        self._require_ci(configuration_item)
+        # Enum validation first (the reference validates the request body before manager FK checks).
+        self._validate_incident_enums(
+            status=status, category=category, impact=impact, urgency=urgency, priority=priority,
+            channel=channel, on_hold_reason=on_hold_reason, resolution_code=resolution_code,
+        )
+        # Normalize empty-string FK fields to None (the reference's normalize_field over its 12
+        # foreign-key fields) before validating/storing them.
+        caller_id = self._blank_to_none(caller_id)
+        assigned_to = self._blank_to_none(assigned_to)
+        assignment_group = self._blank_to_none(assignment_group)
+        resolved_by = self._blank_to_none(resolved_by)
+        service = self._blank_to_none(service)
+        service_offering = self._blank_to_none(service_offering)
+        configuration_item = self._blank_to_none(configuration_item)
+        problem = self._blank_to_none(problem)
+        change_request = self._blank_to_none(change_request)
+        caused_by_change = self._blank_to_none(caused_by_change)
+        incident_template = self._blank_to_none(incident_template)
+        parent_incident = self._blank_to_none(parent_incident)
+        if not caller_id:
+            raise ItsmError("caller_id is required", code="MISSING_FIELD", field="caller_id")
+
+        # Collect ALL invalid references into one combined error (matches the reference's
+        # aggregated VALIDATION_ERROR), instead of stopping at the first bad ref.
+        errors = self._collect_ref_errors(
+            caller_id=caller_id, assigned_to=assigned_to, assignment_group=assignment_group,
+            resolved_by=resolved_by, service=service, service_offering=service_offering,
+            configuration_item=configuration_item, problem=problem, change_request=change_request,
+            caused_by_change=caused_by_change, incident_template=incident_template,
+        )
+        if errors:
+            raise ItsmError("; ".join(errors), code="VALIDATION_ERROR")
 
         incident_id, seq = self._make_id(self.db.incident, "INC")
         now = self._now()
@@ -192,12 +291,21 @@ class IncidentToolsMixin(ItsmToolsBase):
         Returns:
             The updated incident.
         """
+        self._validate_incident_enums(
+            status=status, category=category, impact=impact, urgency=urgency, priority=priority,
+            channel=channel, on_hold_reason=on_hold_reason, resolution_code=resolution_code,
+        )
         incident = self._require_incident(incident_id)
-        self._require_user(caller_id, "caller_id")
-        self._require_user(assigned_to, "assigned_to")
-        self._require_user(resolved_by, "resolved_by")
-        self._require_group(assignment_group)
-        self._require_ci(configuration_item)
+        # Collect ALL invalid references into one combined error (matches the reference's
+        # aggregated VALIDATION_ERROR), instead of stopping at the first bad ref.
+        errors = self._collect_ref_errors(
+            caller_id=caller_id, assigned_to=assigned_to, assignment_group=assignment_group,
+            resolved_by=resolved_by, service=service, service_offering=service_offering,
+            configuration_item=configuration_item, problem=problem, change_request=change_request,
+            caused_by_change=caused_by_change, incident_template=incident_template,
+        )
+        if errors:
+            raise ItsmError("; ".join(errors), code="VALIDATION_ERROR")
 
         updates = {
             "number": number, "service": service, "service_offering": service_offering,
@@ -213,9 +321,18 @@ class IncidentToolsMixin(ItsmToolsBase):
             "resolved_by": resolved_by, "on_hold_reason": on_hold_reason,
             "incident_template": incident_template, "resolved": resolved,
         }
-        for field, value in updates.items():
-            if value is not None:
-                setattr(incident, field, value)
+        # A no-op update (every provided field already equals the stored value) is rejected, not
+        # silently re-stamped — matches the reference's "no changes detected" (both text and enum
+        # fields trigger it for incidents).
+        provided = {k: v for k, v in updates.items() if v is not None}
+        changed = {k: v for k, v in provided.items() if getattr(incident, k) != v}
+        if provided and not changed:
+            raise ItsmError(
+                "No changes detected for fields: " + ", ".join(provided),
+                code="NO_CHANGES_DETECTED",
+            )
+        for field, value in changed.items():
+            setattr(incident, field, value)
         incident.updated_at = self._now()
         return incident
 
@@ -318,6 +435,11 @@ class IncidentToolsMixin(ItsmToolsBase):
         Returns:
             The list of matching incidents.
         """
+        # The reference validates enum-typed filters too (invalid value -> error, not empty result).
+        self._validate_incident_enums(
+            status=status, category=category, impact=impact, urgency=urgency, priority=priority,
+            channel=channel, on_hold_reason=on_hold_reason, resolution_code=resolution_code,
+        )
         # map exposed filter name -> incident attribute ('called_id' is the MCP's spelling)
         eq_filters = {
             "incident_id": incident_id, "number": number, "service": service,
@@ -338,7 +460,9 @@ class IncidentToolsMixin(ItsmToolsBase):
         for inc in self.db.incident.values():
             if any(getattr(inc, attr) != val for attr, val in active.items()):
                 continue
-            if created_after is not None and (inc.created_at or "") < created_after:
+            # Lower bound is EXCLUSIVE for the incidents domain (live probe #9): keep only
+            # created_at strictly greater than created_after. Upper bound stays inclusive (live).
+            if created_after is not None and (inc.created_at or "") <= created_after:
                 continue
             if created_before is not None and (inc.created_at or "") > created_before:
                 continue
@@ -368,19 +492,36 @@ class IncidentToolsMixin(ItsmToolsBase):
         return out
 
     @is_tool(ToolType.READ)
-    def get_count_of_incident_priority_wise(self, priority_list: List[str]) -> dict:
-        """Count incidents for each priority in the given list.
+    def get_count_of_incident_priority_wise(
+        self, priority_list: Optional[List[str]] = None
+    ) -> dict:
+        """Count incidents per priority.
+
+        With a ``priority_list`` only those priorities are counted; when omitted (or empty) the
+        reference counts ALL priorities present in the data (grouped), so we do the same.
 
         Args:
-            priority_list: Priorities to count, e.g. ['high', 'critical'].
+            priority_list: Optional priorities to count, e.g. ['high', 'critical']. Omit to count
+                every priority present.
 
         Returns:
-            A mapping of each requested priority to its incident count.
+            A mapping of each priority to its incident count.
         """
-        counts = {p: 0 for p in priority_list}
+        if priority_list:
+            # The reference validates each requested priority against the enum set (case-sensitive)
+            # and rejects invalid/wrong-case values rather than returning a zero count for them.
+            for p in priority_list:
+                self._check_enum("priority_list", p, enums.INCIDENT_PRIORITY)
+            counts = {p: 0 for p in priority_list}
+            for inc in self.db.incident.values():
+                if inc.priority in counts:
+                    counts[inc.priority] += 1
+            return counts
+        # No list: group over all priorities present (count-all behaviour).
+        counts: dict = {}
         for inc in self.db.incident.values():
-            if inc.priority in counts:
-                counts[inc.priority] += 1
+            if inc.priority is not None:
+                counts[inc.priority] = counts.get(inc.priority, 0) + 1
         return counts
 
     @is_tool(ToolType.READ)
@@ -402,6 +543,15 @@ class IncidentToolsMixin(ItsmToolsBase):
         Returns:
             A mapping of the group id to the matching incident count.
         """
+        # Enum validation happens at the request body (before the handler's group lookup): an
+        # invalid/wrong-case/empty filter is rejected rather than silently matching nothing.
+        self._validate_incident_enums(status=status, priority=priority, channel=channel)
+        # The reference 404s when the assignment group does not exist (it does not return 0).
+        if assignment_group_id not in self.db.user_group:
+            raise ItsmError(
+                f"Assignment Group not found with identifier '{assignment_group_id}'",
+                code="NOT_FOUND",
+            )
         count = 0
         for inc in self.db.incident.values():
             if inc.assignment_group != assignment_group_id:
@@ -429,6 +579,16 @@ class IncidentToolsMixin(ItsmToolsBase):
                 raise ItsmError(
                     f"Child incident relationship already exists: '{parent_incident}' -> "
                     f"'{child_incident}'", code="INVALID_RELATIONSHIP", field="child_incident",
+                )
+        # Reverse-relationship guard: reject A->B when B->A already exists (the reference forbids
+        # cyclic parent/child links).
+        for m in self.db.child_incident.values():
+            if m.parent_incident == child_incident and m.child_incident == parent_incident:
+                raise ItsmError(
+                    f"Cannot create relationship '{parent_incident}' -> '{child_incident}': "
+                    f"reverse relationship already exists ('{child_incident}' -> "
+                    f"'{parent_incident}')",
+                    code="INVALID_RELATIONSHIP", field="child_incident",
                 )
         mapping_id, _ = self._make_id(self.db.child_incident, "CINC")
         now = self._now()
@@ -468,7 +628,17 @@ class IncidentToolsMixin(ItsmToolsBase):
         Returns:
             The created parent-child mappings.
         """
-        return [self._add_child(parent_incident, child) for child in child_incidents]
+        # All-or-nothing on existence (matches the reference): validate the parent, drop empty/
+        # whitespace child ids, then collect EVERY missing child and reject before inserting any.
+        self._require_incident(parent_incident, "parent_incident")
+        cleaned = [c for c in child_incidents if c and c.strip()]
+        missing = [c for c in cleaned if c not in self.db.incident]
+        if missing:
+            raise ItsmError(
+                "The following child incidents do not exist: " + ", ".join(missing),
+                code="CHILD_INCIDENTS_NOT_FOUND", field="child_incidents",
+            )
+        return [self._add_child(parent_incident, child) for child in cleaned]
 
     @is_tool(ToolType.WRITE)
     def update_child_incident(
@@ -492,6 +662,41 @@ class IncidentToolsMixin(ItsmToolsBase):
             )
         self._require_incident(parent_incident, "parent_incident")
         self._require_incident(child_incident, "child_incident")
+        # Self-link guard.
+        if parent_incident == child_incident:
+            raise ItsmError(
+                "Cannot update relationship: parent and child incident cannot be the same "
+                f"('{parent_incident}')",
+                code="INVALID_RELATIONSHIP", field="child_incident",
+            )
+        # Duplicate guard: another mapping already has this exact direction.
+        for m in self.db.child_incident.values():
+            if m.child_incident_mapping_id == child_incident_mapping_id:
+                continue
+            if m.parent_incident == parent_incident and m.child_incident == child_incident:
+                raise ItsmError(
+                    f"Child incident relationship already exists: '{parent_incident}' -> "
+                    f"'{child_incident}'", code="INVALID_RELATIONSHIP", field="child_incident",
+                )
+        # Reverse guard: another mapping already has the reverse direction.
+        for m in self.db.child_incident.values():
+            if m.child_incident_mapping_id == child_incident_mapping_id:
+                continue
+            if m.parent_incident == child_incident and m.child_incident == parent_incident:
+                raise ItsmError(
+                    f"Cannot update relationship '{parent_incident}' -> '{child_incident}': "
+                    f"reverse relationship already exists in another mapping ('{child_incident}' "
+                    f"-> '{parent_incident}')",
+                    code="INVALID_RELATIONSHIP", field="child_incident",
+                )
+        # No-op guard: this mapping already holds the exact pair being set.
+        if (mapping.parent_incident == parent_incident
+                and mapping.child_incident == child_incident):
+            raise ItsmError(
+                f"Cannot update: relationship '{parent_incident}' -> '{child_incident}' already "
+                f"exists for mapping '{child_incident_mapping_id}'",
+                code="INVALID_RELATIONSHIP", field="child_incident",
+            )
         mapping.parent_incident = parent_incident
         mapping.child_incident = child_incident
         mapping.updated_at = self._now()
@@ -512,20 +717,35 @@ class IncidentToolsMixin(ItsmToolsBase):
             child_incident: Remove mappings with this child.
 
         Returns:
-            A summary with the number of mappings removed.
+            A success message; raises if the mapping is not found.
         """
-        to_remove = []
-        for mid, m in self.db.child_incident.items():
-            if child_incident_mapping_id is not None and mid != child_incident_mapping_id:
-                continue
-            if parent_incident is not None and m.parent_incident != parent_incident:
-                continue
-            if child_incident is not None and m.child_incident != child_incident:
-                continue
-            to_remove.append(mid)
-        for mid in to_remove:
-            del self.db.child_incident[mid]
-        return {"success": True, "deleted_count": len(to_remove)}
+        # Identifier guard: require the mapping id OR both parent and child (the reference rejects
+        # any other combination — including no args — instead of matching/deleting everything).
+        if not child_incident_mapping_id and (not parent_incident or not child_incident):
+            raise ItsmError(
+                "Either child_incident_mapping_id or both parent_incident and child_incident "
+                "must be provided",
+                code="MISSING_IDENTIFIERS",
+            )
+        # Resolve a SINGLE mapping (id takes precedence), mirroring the reference's `.first()`.
+        if child_incident_mapping_id:
+            mapping = self.db.child_incident.get(child_incident_mapping_id)
+            identifier = child_incident_mapping_id
+        else:
+            mapping = next(
+                (m for m in self.db.child_incident.values()
+                 if m.parent_incident == parent_incident
+                 and m.child_incident == child_incident),
+                None,
+            )
+            identifier = f"{parent_incident}-{child_incident}"
+        if mapping is None:
+            raise ItsmError(
+                f"Child incident mapping '{identifier}' not found",
+                code="MAPPING_NOT_FOUND",
+            )
+        del self.db.child_incident[mapping.child_incident_mapping_id]
+        return {"message": "Child incident mapping removed successfully"}
 
     @is_tool(ToolType.READ)
     def list_child_incidents(self, parent_incident: str) -> List[ChildIncident]:

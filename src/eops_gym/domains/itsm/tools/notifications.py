@@ -6,17 +6,28 @@ incident-scoped finders, and send/update/delete write tools.
 
 from __future__ import annotations
 
+import re
+from datetime import datetime
 from typing import List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import Notification
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
+
+# Pragmatic e-mail shape gate (local@domain.tld); mirrors the reference's INVALID_EMAIL_FORMAT 400.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class NotificationToolsMixin(ItsmToolsBase):
     """Notification management tools."""
 
     # ------------------------------------------------------------------ helpers
+    def _validate_notification_enums(self, *, type=None, status=None) -> None:
+        """Reject out-of-set enum values, mirroring the reference's request-body enum gate."""
+        self._check_enum("type", type, enums.NOTIFICATION_TYPE)
+        self._check_enum("status", status, enums.NOTIFICATION_STATUS)
+
     def _acting_email(self) -> Optional[str]:
         """Email of the acting (token) user, used for the send-to-self guard."""
         if self.acting_user_id and self.acting_user_id in self.db.users:
@@ -44,6 +55,39 @@ class NotificationToolsMixin(ItsmToolsBase):
             )
         return notif
 
+    @staticmethod
+    def _parse_filter_date(value: str) -> Optional[datetime]:
+        """Parse an ISO-8601 date or datetime (tolerating a trailing 'Z'); None if unparseable."""
+        text = value.strip()
+        if text.endswith("Z"):
+            text = text[:-1]
+        try:
+            return datetime.fromisoformat(text)
+        except ValueError:
+            try:
+                return datetime.fromisoformat(text + "T00:00:00")
+            except ValueError:
+                return None
+
+    def _validate_filter_date(self, field: str, value: Optional[str]) -> None:
+        """Reject a non-ISO date filter, mirroring the reference's INVALID_DATE_FORMAT 400."""
+        if value and self._parse_filter_date(value) is None:
+            raise ItsmError(
+                f"Invalid date format for {field}: '{value}'. Expected ISO 8601 format "
+                "(e.g., '2024-01-15T09:00:00' or '2024-01-15')",
+                code="INVALID_DATE_FORMAT",
+                field=field,
+            )
+
+    def _validate_email_format(self, email: str) -> None:
+        """Reject a malformed e-mail address, mirroring the reference's INVALID_EMAIL_FORMAT 400."""
+        if not _EMAIL_RE.match(email or ""):
+            raise ItsmError(
+                f"Invalid email format provided: '{email}'",
+                code="INVALID_EMAIL_FORMAT",
+                field="email",
+            )
+
     # ------------------------------------------------------------------ writes
     @is_tool(ToolType.WRITE)
     def send_notification(
@@ -70,6 +114,8 @@ class NotificationToolsMixin(ItsmToolsBase):
         Returns:
             The created notification.
         """
+        # Enum validation first (the reference validates the request body before FK checks).
+        self._validate_notification_enums(type=type, status=status)
         self._require_incident(incident_id)
         self._require_email_user(email)
         acting_email = self._acting_email()
@@ -123,12 +169,9 @@ class NotificationToolsMixin(ItsmToolsBase):
         Returns:
             The updated notification.
         """
+        # Enum validation first (the reference validates the request body before FK checks).
+        self._validate_notification_enums(type=type, status=status)
         notification = self._require_notification(notification_id)
-        if incident_id is not None:
-            self._require_incident(incident_id)
-        if email is not None:
-            self._require_email_user(email)
-
         updates = {
             "incident_id": incident_id,
             "email": email,
@@ -137,9 +180,19 @@ class NotificationToolsMixin(ItsmToolsBase):
             "subject": subject,
             "message": message,
         }
-        for field, value in updates.items():
-            if value is not None:
-                setattr(notification, field, value)
+        provided = {k: v for k, v in updates.items() if v is not None}
+        if not provided:
+            raise ItsmError("At least one field must be provided for update")
+        if incident_id is not None:
+            self._require_incident(incident_id)
+        if email is not None:
+            self._require_email_user(email)
+        # A no-op update (every provided field already equal) is rejected, not silently re-stamped.
+        changed = {k: v for k, v in provided.items() if getattr(notification, k) != v}
+        if not changed:
+            raise ItsmError("No changes detected", code="NO_CHANGES_DETECTED")
+        for field, value in changed.items():
+            setattr(notification, field, value)
         notification.updated_on = self._now()
         return notification
 
@@ -177,14 +230,16 @@ class NotificationToolsMixin(ItsmToolsBase):
     ) -> dict:
         """Search notifications using various filters; all are optional and ANDed together.
 
-        Empty-string or null values for any filter are ignored. Date filters compare against
-        ``created_on``: ``created_after`` is exclusive (> value) and ``created_before`` is
-        inclusive (<= value).
+        Null values for any filter are ignored. The ``email`` filter is a case-insensitive
+        substring match; an empty ``email`` is ignored. Empty-string id filters and unknown
+        id/date/enum values are rejected (the reference pre-validates the request before querying).
+        Date filters compare against ``created_on``: ``created_after`` is exclusive (> value) and
+        ``created_before`` is inclusive (<= value).
 
         Args:
             notification_id: Filter by notification id.
             incident_id: Filter by associated incident id.
-            email: Filter by recipient email address.
+            email: Filter by recipient email address (case-insensitive substring match).
             type: Filter by notification type (alert, update, reminder, report,
                 solution_proposal, other).
             status: Filter by notification status (queued, sent, delivered, opened, failed).
@@ -195,17 +250,56 @@ class NotificationToolsMixin(ItsmToolsBase):
             A mapping with the matching notifications and their count
             ({'notifications': [...], 'count': N}).
         """
+        # The reference validates enum-typed filters too (invalid/empty value -> error, not empty
+        # result); this fires first, matching the reference's request-body parse order.
+        self._validate_notification_enums(type=type, status=status)
+        # Empty-string id filters are rejected (email empty is silently ignored, per the reference).
+        if notification_id == "":
+            raise ItsmError(
+                "notification_id cannot be empty. Please provide a valid notification ID "
+                "or omit this parameter.",
+                code="MISSING_REQUIRED_VALUE",
+                field="notification_id",
+            )
+        if incident_id == "":
+            raise ItsmError(
+                "incident_id cannot be empty. Please provide a valid incident ID "
+                "or omit this parameter.",
+                code="MISSING_REQUIRED_VALUE",
+                field="incident_id",
+            )
+        # Reference-existence checks for the id filters.
+        if notification_id and notification_id not in self.db.notification:
+            raise ItsmError(
+                f"Notification with ID '{notification_id}' not found or does not "
+                "belong to your organization",
+                code="NOTIFICATION_NOT_FOUND",
+                field="notification_id",
+            )
+        if incident_id and incident_id not in self.db.incident:
+            raise ItsmError(
+                f"Incident with ID '{incident_id}' not found",
+                code="INCIDENT_NOT_FOUND",
+                field="incident_id",
+            )
+        # Date-format validation (the boundary comparison below is unchanged).
+        self._validate_filter_date("created_after", created_after)
+        self._validate_filter_date("created_before", created_before)
+
         eq_filters = {
             "notification_id": notification_id,
             "incident_id": incident_id,
-            "email": email,
             "type": type,
             "status": status,
         }
         active = {k: v for k, v in eq_filters.items() if v}
+        # ``email`` is matched case-insensitively as a substring (reference uses ilike '%email%').
+        email_needle = email.lower() if email else None
         out: List[Notification] = []
         for notif in self.db.notification.values():
             if any(getattr(notif, attr) != val for attr, val in active.items()):
+                continue
+            if email_needle is not None and email_needle not in (notif.email or "").lower():
                 continue
             if created_after and (notif.created_on or "") <= created_after:
                 continue
@@ -225,6 +319,8 @@ class NotificationToolsMixin(ItsmToolsBase):
             A mapping with the matching notifications and their count
             ({'notifications': [...], 'count': N}).
         """
+        # The reference rejects malformed addresses with a 400 before the lookup.
+        self._validate_email_format(email)
         out = [n for n in self.db.notification.values() if n.email == email]
         if not out:
             raise ItsmError(

@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from eops_gym.domains.itsm.tools._base import ItsmToolsBase
+from eops_gym.domains.itsm import enums
+from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
 
 
@@ -32,6 +33,7 @@ class NotificationAnalysisToolsMixin(ItsmToolsBase):
             A dict ``{"metrics": {incident_id: count}}``.
         """
         if incident_id is not None:
+            self._validate_incident_ids(incident_id)
             metrics: Dict[str, int] = {iid: 0 for iid in incident_id}
             wanted = set(incident_id)
             for notif in self.db.notification.values():
@@ -56,6 +58,10 @@ class NotificationAnalysisToolsMixin(ItsmToolsBase):
         Returns:
             A dict ``{"metrics": {status: count}}``.
         """
+        # The reference validates each enum-typed filter element before grouping.
+        if status is not None:
+            for value in status:
+                self._check_enum("status", value, enums.NOTIFICATION_STATUS)
         return self._count_by_field("status", status)
 
     @is_tool(ToolType.READ)
@@ -71,6 +77,10 @@ class NotificationAnalysisToolsMixin(ItsmToolsBase):
         Returns:
             A dict ``{"metrics": {type: count}}``.
         """
+        # The reference validates each enum-typed filter element before grouping.
+        if type is not None:
+            for value in type:
+                self._check_enum("type", value, enums.NOTIFICATION_TYPE)
         return self._count_by_field("type", type)
 
     @is_tool(ToolType.READ)
@@ -89,6 +99,8 @@ class NotificationAnalysisToolsMixin(ItsmToolsBase):
         Returns:
             A dict ``{"average": float}``.
         """
+        if incident_id is not None:
+            self._validate_incident_ids(incident_id)
         counts: Dict[str, int] = {}
         wanted = set(incident_id) if incident_id is not None else None
         for notif in self.db.notification.values():
@@ -102,6 +114,25 @@ class NotificationAnalysisToolsMixin(ItsmToolsBase):
         return {"average": average}
 
     # ------------------------------------------------------------------ helpers
+    def _validate_incident_ids(self, incident_id: List[str]) -> None:
+        """Reject any incident_id reference that does not exist (batch FK gate).
+
+        Mirrors the reference's ``_validate_incident_ids``: collects the unknown ids (deduped,
+        preserving input order) and raises a single
+        ``Invalid incident_id reference(s): <ids>`` error. An empty list passes (no references
+        to validate), matching the reference's truthiness-based filter handling.
+        """
+        invalid: List[str] = []
+        for iid in incident_id:
+            if iid not in self.db.incident and iid not in invalid:
+                invalid.append(iid)
+        if invalid:
+            raise ItsmError(
+                "Invalid incident_id reference(s): " + ", ".join(invalid),
+                code="INVALID_REFERENCE",
+                field="incident_id",
+            )
+
     def _count_by_field(self, field: str, values: Optional[List[str]]) -> dict:
         """Mirror the original MCP's status/type grouping (incl. its upper-case mismatch bug).
 

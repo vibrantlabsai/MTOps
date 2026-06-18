@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import Change
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
@@ -21,6 +22,24 @@ class ChangeToolsMixin(ItsmToolsBase):
     """Change management tools."""
 
     # ------------------------------------------------------------------ helpers
+    def _validate_change_enums(
+        self,
+        *,
+        status=None,
+        priority=None,
+        impact=None,
+        risk=None,
+        category=None,
+        close_code=None,
+    ) -> None:
+        """Reject out-of-set enum values, mirroring the reference's request-body enum gate."""
+        self._check_enum("status", status, enums.CHANGE_STATUS)
+        self._check_enum("priority", priority, enums.CHANGE_PRIORITY)
+        self._check_enum("impact", impact, enums.CHANGE_IMPACT)
+        self._check_enum("risk", risk, enums.CHANGE_RISK)
+        self._check_enum("category", category, enums.CHANGE_CATEGORY)
+        self._check_enum("close_code", close_code, enums.CHANGE_CLOSE_CODE)
+
     def _chg_require_service(self, service_id: Optional[str], field: str = "service") -> None:
         if service_id is not None and service_id not in self.db.service:
             raise ItsmError(
@@ -109,6 +128,11 @@ class ChangeToolsMixin(ItsmToolsBase):
         Returns:
             The created change request.
         """
+        # Enum validation first (the reference validates the request body before manager FK checks).
+        self._validate_change_enums(
+            status=status, priority=priority, impact=impact, risk=risk,
+            category=category, close_code=close_code,
+        )
         self._require_user(assigned_to, "assigned_to")
         self._require_group(assignment_group)
         self._require_ci(configuration_item)
@@ -202,6 +226,11 @@ class ChangeToolsMixin(ItsmToolsBase):
         Returns:
             The updated change request.
         """
+        # Enum validation first (the reference validates the request body before manager FK checks).
+        self._validate_change_enums(
+            status=status, priority=priority, impact=impact, risk=risk,
+            category=category, close_code=close_code,
+        )
         updates = {
             "number": number, "requested_by": requested_by,
             "short_description": short_description, "service": service,
@@ -224,6 +253,21 @@ class ChangeToolsMixin(ItsmToolsBase):
         self._require_ci(configuration_item)
         self._chg_require_service(service)
         self._chg_require_service_offering(service_offering)
+
+        # Number must stay unique within the org.
+        if number is not None:
+            for other in self.db.change.values():
+                if (
+                    other.change_id != change_id
+                    and other.org_id == change.org_id
+                    and other.number == number
+                ):
+                    raise ItsmError(
+                        f"Change with number '{number}' already exists in organization "
+                        f"'{change.org_id}'",
+                        code="DUPLICATE_NUMBER",
+                        field="number",
+                    )
 
         unchanged = [k for k, v in provided.items() if getattr(change, k) == v]
         if len(unchanged) == len(provided):
@@ -283,7 +327,7 @@ class ChangeToolsMixin(ItsmToolsBase):
         close_notes: Optional[str] = None,
         created_after: Optional[str] = None,
         created_before: Optional[str] = None,
-    ) -> List[Change]:
+    ) -> dict:
         """List changes, optionally filtered. All filters are ANDed; omitted filters ignored.
 
         Id/enum filters match exactly; text filters (short_description, description,
@@ -313,8 +357,16 @@ class ChangeToolsMixin(ItsmToolsBase):
             created_before: Only changes created on/before this ISO timestamp.
 
         Returns:
-            The list of matching changes.
+            A dict with 'changes' (the matching changes) and 'total_count'.
         """
+        # The reference validates enum-typed filters too (invalid value -> error, not empty
+        # result), but ONLY for truthy values: an empty-string filter is treated as "not
+        # provided" (the live manager skips falsy filters before validating/applying them, so
+        # e.g. close_code="" returns all rows rather than filtering or erroring).
+        self._validate_change_enums(
+            status=status or None, priority=priority or None, impact=impact or None,
+            risk=risk or None, category=category or None, close_code=close_code or None,
+        )
         eq_filters = {
             "change_id": change_id, "number": number, "service": service,
             "service_offering": service_offering, "configuration_item": configuration_item,
@@ -327,8 +379,9 @@ class ChangeToolsMixin(ItsmToolsBase):
             "implementation_plan": implementation_plan, "testing_plan": testing_plan,
             "close_notes": close_notes,
         }
-        active_eq = {k: v for k, v in eq_filters.items() if v is not None}
-        active_partial = {k: v for k, v in partial_filters.items() if v is not None}
+        # Falsy filter values (None or "") are treated as "not provided" (live behaviour).
+        active_eq = {k: v for k, v in eq_filters.items() if v}
+        active_partial = {k: v for k, v in partial_filters.items() if v}
 
         out: List[Change] = []
         for change in self.db.change.values():
@@ -342,17 +395,17 @@ class ChangeToolsMixin(ItsmToolsBase):
                     break
             if skip:
                 continue
-            if created_after is not None and (change.created_on or "") <= created_after:
+            if created_after and (change.created_on or "") <= created_after:
                 continue
-            if created_before is not None and (change.created_on or "") > created_before:
+            if created_before and (change.created_on or "") > created_before:
                 continue
             out.append(change)
-        return out
+        return {"changes": out, "total_count": len(out)}
 
     @is_tool(ToolType.READ)
     def get_changes_assigned_to(
         self, assignment_group: Optional[str] = None, assigned_to: Optional[str] = None
-    ) -> List[Change]:
+    ) -> dict:
         """List changes assigned to a user and/or assignment group.
 
         At least one of assignment_group or assigned_to must be provided.
@@ -362,7 +415,7 @@ class ChangeToolsMixin(ItsmToolsBase):
             assigned_to: Assignee user id to filter by.
 
         Returns:
-            The list of matching changes.
+            A dict with 'changes' (the matching changes) and 'total_count'.
         """
         if assignment_group is None and assigned_to is None:
             raise ItsmError(
@@ -376,7 +429,7 @@ class ChangeToolsMixin(ItsmToolsBase):
             if assigned_to is not None and change.assigned_to != assigned_to:
                 continue
             out.append(change)
-        return out
+        return {"changes": out, "total_count": len(out)}
 
     # ------------------------------------------------------------------ private
     def _first_admin_id(self) -> str:

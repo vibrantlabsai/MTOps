@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import ConfigurationItem
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
@@ -16,6 +17,24 @@ class ConfigurationItemToolsMixin(ItsmToolsBase):
     """Configuration item management tools."""
 
     # ------------------------------------------------------------------ helpers
+    def _validate_ci_enums(self, *, status=None) -> None:
+        """Reject out-of-set enum values, mirroring the reference's request-body enum gate."""
+        self._check_enum("status", status, enums.CI_STATUS)
+
+    def _validate_ci_cost(self, cost: Optional[float]) -> None:
+        """Reject a negative cost, mirroring the reference request schema's ``ge=0`` bound.
+
+        The original rejects ``cost < 0`` as a request-body validation error before any FK or
+        existence check (the gym does not enforce JSON-schema bounds at call time, so this guard
+        is required for parity).
+        """
+        if cost is not None and cost < 0:
+            raise ItsmError(
+                "Input should be greater than or equal to 0",
+                code="VALIDATION_ERROR",
+                field="cost",
+            )
+
     def _ci_require_location(self, location_id: Optional[str]) -> None:
         if location_id is not None and location_id not in self.db.location:
             raise ItsmError(
@@ -57,6 +76,10 @@ class ConfigurationItemToolsMixin(ItsmToolsBase):
         Returns:
             The newly created configuration item.
         """
+        # Enum validation first (the reference validates the request body before FK checks).
+        self._validate_ci_enums(status=status)
+        # Body-level numeric validation (cost >= 0) is rejected before any FK check.
+        self._validate_ci_cost(cost)
         # Validation order mirrors the original MCP: owner -> name -> serial -> location.
         self._require_user(owner_id, "owner_id")
         for ci in self.db.configuration_item.values():
@@ -121,6 +144,11 @@ class ConfigurationItemToolsMixin(ItsmToolsBase):
         Returns:
             The updated configuration item.
         """
+        # Enum validation first (the reference validates the request body before FK checks).
+        self._validate_ci_enums(status=status)
+        # Body-level numeric validation (cost >= 0) is rejected before the CI existence check,
+        # mirroring the reference's request-schema validation order.
+        self._validate_ci_cost(cost)
         ci = self.db.configuration_item.get(configuration_item_id)
         if ci is None:
             raise ItsmError(
@@ -255,6 +283,8 @@ class ConfigurationItemToolsMixin(ItsmToolsBase):
             A dict with the matching CIs under 'configuration_items' (id-descending) and their
             'total_count'.
         """
+        # The reference validates enum-typed filters too (invalid value -> error, not empty result).
+        self._validate_ci_enums(status=status)
         eq_filters = {
             "configuration_item_id": configuration_item_id, "owner_id": owner_id,
             "location_id": location_id, "serial_number": serial_number, "status": status,
@@ -274,5 +304,7 @@ class ConfigurationItemToolsMixin(ItsmToolsBase):
             if created_before is not None and (ci.created_on or "") > created_before:
                 continue
             out.append(ci)
-        out.sort(key=lambda c: c.configuration_item_id, reverse=True)
+        # Mirror the reference's ``ORDER BY created_on DESC``; ties fall back to id-descending so
+        # ordering stays deterministic (and unchanged where timestamps coincide).
+        out.sort(key=lambda c: (c.created_on or "", c.configuration_item_id), reverse=True)
         return {"configuration_items": out, "total_count": len(out)}

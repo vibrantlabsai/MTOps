@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import IncidentKnowledge
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
@@ -20,6 +21,18 @@ class IncidentKnowledgeToolsMixin(ItsmToolsBase):
     """Incident-knowledge link management tools."""
 
     # ----------------------------------------------------------------- helpers
+    def _validate_used_as(self, *, used_as: Optional[str] = None) -> None:
+        """Reject out-of-set ``used_as`` values, mirroring the reference's request-body enum gate.
+
+        ``used_as`` may be a single value (link/remove) or a comma-separated list of values (the
+        ``find`` filter form); each value is checked against ``enums.USED_AS``. ``None`` is a
+        no-op (``self._check_enum`` no-ops on ``None`` too).
+        """
+        if used_as is None:
+            return
+        for value in (v.strip() for v in used_as.split(",") if v.strip()):
+            self._check_enum("used_as", value, enums.USED_AS)
+
     def _require_knowledge(self, knowledge_id: str, field: str = "knowledge_id"):
         kb = self.db.knowledge.get(knowledge_id)
         if kb is None:
@@ -28,6 +41,23 @@ class IncidentKnowledgeToolsMixin(ItsmToolsBase):
                 code="RESOURCE_NOT_FOUND", field=field,
             )
         return kb
+
+    def _require_incident_link(self, incident_id: str, field: str = "incident_id"):
+        """Local incident-existence check for linking.
+
+        Mirrors the reference's incident-not-found error for this category
+        (``RESOURCE_NOT_FOUND`` / ``"Incident '<id>' not found"``), which differs from
+        the shared ``_require_incident`` helper (``VALIDATION_ERROR`` /
+        ``"Incident with ID '<id>' not found"``). Defined locally so the shared helper
+        — used by other categories with their own verdicts — is left untouched.
+        """
+        inc = self.db.incident.get(incident_id)
+        if inc is None:
+            raise ItsmError(
+                f"Incident '{incident_id}' not found",
+                code="RESOURCE_NOT_FOUND", field=field,
+            )
+        return inc
 
     @staticmethod
     def _parse_used_as(used_as: str) -> List[str]:
@@ -67,6 +97,7 @@ class IncidentKnowledgeToolsMixin(ItsmToolsBase):
         Returns:
             The list of matching incident-knowledge links.
         """
+        self._validate_used_as(used_as=used_as)
         used_as_values = self._parse_used_as(used_as) if used_as is not None else None
         out: List[IncidentKnowledge] = []
         for link in self.db.incident_knowledge.values():
@@ -100,18 +131,39 @@ class IncidentKnowledgeToolsMixin(ItsmToolsBase):
         Returns:
             The created incident-knowledge link.
         """
-        incident = self._require_incident(incident_id)
-        self._require_knowledge(knowledge_id)
+        self._validate_used_as(used_as=used_as)
+        incident = self._require_incident_link(incident_id)
+        kb = self._require_knowledge(knowledge_id)
 
         org_id = incident.org_id
+        # The reference enforces two distinct duplicate behaviours for the same
+        # incident+knowledge pair:
+        #   1. App-layer check filters on the *raw* used_as (manager
+        #      ``.filter(incident_id, knowledge_id, used_as)``): an exact
+        #      (incident, knowledge, used_as) triple match raises DUPLICATE_LINK with a
+        #      friendly message. An omitted used_as (None) never matches a stored row
+        #      (stored used_as is always set), so it falls through to (2).
+        #   2. DB-level UNIQUE(org_id, incident_id, knowledge_id) constraint: a second
+        #      link for the same pair under a *different* used_as raises a raw
+        #      CONSTRAINT_VIOLATION. (Live-verified: re-linking under a different
+        #      used_as is blocked, refuting the "uniqueness ignores used_as" claim.)
+        # At most one row exists per (org_id, incident_id, knowledge_id) pair, so the
+        # first matching row decides which branch fires.
         for link in self.db.incident_knowledge.values():
-            if (link.org_id == org_id and link.incident_id == incident_id
+            if not (link.org_id == org_id and link.incident_id == incident_id
                     and link.knowledge_id == knowledge_id):
+                continue
+            if link.used_as == used_as:
                 raise ItsmError(
-                    "UNIQUE constraint failed: incident_knowledge.org_id, "
-                    "incident_knowledge.incident_id, incident_knowledge.knowledge_id",
-                    code="CONSTRAINT_VIOLATION",
+                    f"Knowledge article {kb.kb_number} is already linked to "
+                    f"incident {incident.number} as '{used_as}'",
+                    code="DUPLICATE_LINK",
                 )
+            raise ItsmError(
+                "UNIQUE constraint failed: incident_knowledge.org_id, "
+                "incident_knowledge.incident_id, incident_knowledge.knowledge_id",
+                code="CONSTRAINT_VIOLATION",
+            )
 
         incident_kb_id, _ = self._make_id(self.db.incident_knowledge, "IKB")
         now = self._now()
@@ -151,6 +203,7 @@ class IncidentKnowledgeToolsMixin(ItsmToolsBase):
         Returns:
             A confirmation message dict.
         """
+        self._validate_used_as(used_as=used_as)
         if incident_kb_id is not None:
             link = self.db.incident_knowledge.get(incident_kb_id)
             if link is None:

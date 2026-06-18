@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import IncidentTemplate
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
@@ -17,7 +18,54 @@ from eops_gym.environment.toolkit import ToolType, is_tool
 class IncidentTemplateToolsMixin(ItsmToolsBase):
     """Incident-template management tools."""
 
+    # The recognised ``change_request_values`` keys (sorted; mirrors the reference's allow-list
+    # and the order it renders them in the rejection message).
+    _ALLOWED_CRV_KEYS = (
+        "caller_id",
+        "category",
+        "channel",
+        "configuration_item",
+        "impact",
+        "priority",
+        "service",
+        "service_offering",
+        "short_description",
+        "urgency",
+    )
+
     # ----------------------------------------------------------- private helpers
+    def _check_unknown_crv_keys(self, crv: Dict[str, Any]) -> None:
+        """Reject ``change_request_values`` keys outside the recognised set.
+
+        The live server rejects unknown keys with a single ``VALIDATION_ERROR``; the port
+        previously ignored them silently. Unknown keys are listed sorted, followed by the full
+        allow-list.
+        """
+        unknown = sorted(k for k in crv if k not in self._ALLOWED_CRV_KEYS)
+        if unknown:
+            raise ItsmError(
+                "Invalid fields in change_request_values: "
+                + ", ".join(unknown)
+                + ". Allowed fields: "
+                + ", ".join(self._ALLOWED_CRV_KEYS),
+                code="VALIDATION_ERROR",
+            )
+
+    def _validate_template_enums(self, crv: Dict[str, Any]) -> None:
+        """Reject out-of-set enum values supplied in ``change_request_values``.
+
+        Mirrors the reference's request-body enum gate. The enum-typed template fields are nested
+        inside ``change_request_values``, so they are validated from that dict. Empty strings are
+        this category's "not provided" sentinel (ignored on update, defaulted on create), so they
+        are coerced to ``None`` and skipped by ``_check_enum`` (which already no-ops on None).
+        Note: the template channel set excludes 'web' (unlike ``incident.channel``).
+        """
+        self._check_enum("impact", crv.get("impact") or None, enums.INCIDENT_IMPACT)
+        self._check_enum("urgency", crv.get("urgency") or None, enums.INCIDENT_URGENCY)
+        self._check_enum("priority", crv.get("priority") or None, enums.INCIDENT_PRIORITY)
+        self._check_enum("category", crv.get("category") or None, enums.INCIDENT_CATEGORY)
+        self._check_enum("channel", crv.get("channel") or None, enums.TEMPLATE_CHANNEL)
+
     def _tmpl_require_service(self, service_id: Optional[str], field: str = "service") -> None:
         if service_id is not None and service_id not in self.db.service:
             raise ItsmError(f"Service with ID '{service_id}' not found", field=field)
@@ -29,6 +77,69 @@ class IncidentTemplateToolsMixin(ItsmToolsBase):
             raise ItsmError(
                 f"Service offering with ID '{offering_id}' not found", field=field
             )
+
+    def _template_parent_consistency_error(
+        self, service_id: Optional[str], offering_id: Optional[str]
+    ) -> Optional[str]:
+        """Return the service<->offering parent-consistency error, or None if consistent/skipped.
+
+        The reference only runs this cross-check when BOTH the (effective) service and offering
+        resolve to existing rows: if the service does not exist its existence error is what
+        surfaces and the parent-check is skipped. The message names the offering's actual parent
+        service (mirrors live).
+        """
+        if not service_id or not offering_id:
+            return None
+        if service_id not in self.db.service:
+            return None
+        offering = self.db.service_offering.get(offering_id)
+        if offering is None:
+            return None
+        if offering.business_service == service_id:
+            return None
+        svc = self.db.service.get(service_id)
+        svc_name = svc.name if svc else service_id
+        parent = self.db.service.get(offering.business_service)
+        parent_name = parent.name if parent else offering.business_service
+        return (
+            f"Service offering '{offering_id}' ({offering.name}) does not belong to service "
+            f"'{service_id}' ({svc_name}). Service offering belongs to service "
+            f"'{offering.business_service}' ({parent_name})"
+        )
+
+    def _collect_template_ref_errors(
+        self,
+        caller_id: Optional[str],
+        service: Optional[str],
+        service_offering: Optional[str],
+        configuration_item: Optional[str],
+        eff_service: Optional[str],
+        eff_offering: Optional[str],
+    ) -> List[str]:
+        """Validate every referenced entity, collecting ALL errors in the reference's order.
+
+        The live server aggregates referenced-entity failures (caller_id, service,
+        service_offering, configuration_item) together with the service<->offering
+        parent-consistency check into one ``VALIDATION_ERROR`` instead of stopping at the first
+        bad ref. ``None`` values (field not provided, or cleared on update) are skipped by the
+        underlying existence checks.
+        """
+        errors: List[str] = []
+        checks = (
+            (self._require_user, caller_id, "caller_id"),
+            (self._tmpl_require_service, service, "service"),
+            (self._tmpl_require_service_offering, service_offering, "service_offering"),
+            (self._require_ci, configuration_item, "configuration_item"),
+        )
+        for fn, value, field in checks:
+            try:
+                fn(value, field)
+            except ItsmError as exc:
+                errors.append(str(exc))
+        parent_err = self._template_parent_consistency_error(eff_service, eff_offering)
+        if parent_err:
+            errors.append(parent_err)
+        return errors
 
     def _name_exists(self, name: str, exclude_id: Optional[str] = None) -> bool:
         for tid, tmpl in self.db.incident_template.items():
@@ -64,6 +175,8 @@ class IncidentTemplateToolsMixin(ItsmToolsBase):
             The created incident template.
         """
         crv = change_request_values or {}
+        # Enum validation first (the reference validates the request body before manager FK checks).
+        self._validate_template_enums(crv)
         caller_id = crv.get("caller_id")
         short_description = crv.get("short_description")
         if caller_id is None or caller_id == "":
@@ -86,13 +199,18 @@ class IncidentTemplateToolsMixin(ItsmToolsBase):
                 field="name",
             )
 
+        # Unknown change_request_values keys are rejected (live), after the name-unique check.
+        self._check_unknown_crv_keys(crv)
+
         configuration_item = crv.get("configuration_item")
         service = crv.get("service")
         service_offering = crv.get("service_offering")
-        self._require_user(caller_id, "caller_id")
-        self._require_ci(configuration_item)
-        self._tmpl_require_service(service)
-        self._tmpl_require_service_offering(service_offering)
+        # Aggregate all referenced-entity + parent-consistency failures into one error.
+        errors = self._collect_template_ref_errors(
+            caller_id, service, service_offering, configuration_item, service, service_offering
+        )
+        if errors:
+            raise ItsmError("; ".join(errors), code="VALIDATION_ERROR")
 
         template_id, _ = self._make_id(self.db.incident_template, "TMPL")
         now = self._now()
@@ -145,6 +263,8 @@ class IncidentTemplateToolsMixin(ItsmToolsBase):
             The updated incident template.
         """
         crv = change_request_values or {}
+        # Enum validation first (the reference validates the request body before manager FK checks).
+        self._validate_template_enums(crv)
 
         # Collect the proposed changes (post-empty-string-filtering). Each entry maps a record
         # attribute -> (new_value, is_tracked_for_no_change, format_style).
@@ -198,18 +318,23 @@ class IncidentTemplateToolsMixin(ItsmToolsBase):
                 field="incident_template_id",
             )
 
-        # FK validation (existence) for any referenced entity in the proposed changes.
-        for attr, value, _, _ in proposed:
-            if value is None:
-                continue
-            if attr == "caller_id":
-                self._require_user(value, "caller_id")
-            elif attr == "configuration_item":
-                self._require_ci(value)
-            elif attr == "service":
-                self._tmpl_require_service(value)
-            elif attr == "service_offering":
-                self._tmpl_require_service_offering(value)
+        # Unknown change_request_values keys are rejected (live), after the existence check.
+        self._check_unknown_crv_keys(crv)
+
+        # FK existence + service<->offering parent-consistency, aggregated in the reference's
+        # order (caller_id, service, service_offering, configuration_item, then parent-check).
+        # Only PROVIDED refs are existence-checked; the parent-check uses the effective values.
+        prop = {attr: value for attr, value, _, _ in proposed}
+        errors = self._collect_template_ref_errors(
+            prop.get("caller_id"),
+            prop.get("service"),
+            prop.get("service_offering"),
+            prop.get("configuration_item"),
+            prop.get("service", template.service),
+            prop.get("service_offering", template.service_offering),
+        )
+        if errors:
+            raise ItsmError("; ".join(errors), code="VALIDATION_ERROR")
 
         # Duplicate-name check (excluding the template itself).
         for attr, value, _, _ in proposed:
@@ -275,7 +400,7 @@ class IncidentTemplateToolsMixin(ItsmToolsBase):
         active: Optional[bool] = None,
         created_after: Optional[str] = None,
         created_before: Optional[str] = None,
-    ) -> List[IncidentTemplate]:
+    ) -> dict:
         """List incident templates with optional filters (newest first).
 
         All provided filters are ANDed. ``created_after`` is strict (>) and ``created_before``
@@ -289,7 +414,8 @@ class IncidentTemplateToolsMixin(ItsmToolsBase):
             created_before: Only templates created on/before this ISO timestamp.
 
         Returns:
-            The list of matching incident templates, newest first.
+            A dict with 'incident_templates' (the matching templates, newest first) and
+            'total_count'.
         """
         out: List[IncidentTemplate] = []
         for tmpl in self.db.incident_template.values():
@@ -305,4 +431,4 @@ class IncidentTemplateToolsMixin(ItsmToolsBase):
                 continue
             out.append(tmpl)
         out.sort(key=lambda t: (t.created_at or ""), reverse=True)
-        return out
+        return {"incident_templates": out, "total_count": len(out)}

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import Problem
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
@@ -19,6 +20,22 @@ class ProblemToolsMixin(ItsmToolsBase):
     """Problem management tools."""
 
     # ----------------------------------------------------------- helpers
+    def _validate_problem_enums(
+        self,
+        *,
+        status=None,
+        priority=None,
+        impact=None,
+        urgency=None,
+        category=None,
+    ) -> None:
+        """Reject out-of-set enum values, mirroring the reference's request-body enum gate."""
+        self._check_enum("status", status, enums.PROBLEM_STATUS)
+        self._check_enum("priority", priority, enums.PROBLEM_PRIORITY)
+        self._check_enum("impact", impact, enums.PROBLEM_IMPACT)
+        self._check_enum("urgency", urgency, enums.PROBLEM_URGENCY)
+        self._check_enum("category", category, enums.PROBLEM_CATEGORY)
+
     def _prb_require_service(self, service_id: Optional[str], field: str = "service") -> None:
         if service_id is not None and service_id not in self.db.service:
             raise ItsmError(
@@ -114,6 +131,10 @@ class ProblemToolsMixin(ItsmToolsBase):
         Returns:
             The created problem.
         """
+        # Enum validation first (the reference validates the request body before manager FK checks).
+        self._validate_problem_enums(
+            status=status, priority=priority, impact=impact, urgency=urgency, category=category,
+        )
         opened_by = self.acting_user_id
         self._validate_problem_fks(
             opened_by=opened_by, assigned_to=assigned_to, assignment_group=assignment_group,
@@ -202,6 +223,10 @@ class ProblemToolsMixin(ItsmToolsBase):
         Returns:
             The updated problem.
         """
+        # Enum validation first (the reference validates the request body before manager FK checks).
+        self._validate_problem_enums(
+            status=status, priority=priority, impact=impact, urgency=urgency, category=category,
+        )
         if problem_id is None and number is None:
             raise ItsmError(
                 "Either 'problem_id' or 'number' must be provided to identify the problem"
@@ -228,6 +253,27 @@ class ProblemToolsMixin(ItsmToolsBase):
             service_offering=service_offering, original_task=original_task,
         )
 
+        # No-changes-detected idempotency. The reference's check is text/ref-field-sensitive:
+        # enum-typed columns (status/category/impact/urgency/priority) are NEVER flagged as
+        # unchanged -- their stored Enum value never compares equal to the incoming string -- so
+        # any update touching an enum field (even with its current value) counts as a real change
+        # and succeeds. The error is raised only when every supplied field is a *non-enum* field
+        # equal to its stored value; each such field is reported with its current value.
+        no_change = [
+            (k, getattr(problem, k))
+            for k, v in active.items()
+            if k not in _ENUM_FILTERS and getattr(problem, k) == v
+        ]
+        enum_provided = any(k in _ENUM_FILTERS for k in active)
+        real_change = any(
+            k not in _ENUM_FILTERS and getattr(problem, k) != v for k, v in active.items()
+        )
+        if not enum_provided and not real_change and no_change:
+            detail = ", ".join(f"{k} (already '{stored}')" for k, stored in no_change)
+            raise ItsmError(
+                "No changes detected for fields: " + detail,
+                code="NO_CHANGES_DETECTED",
+            )
         for field, value in active.items():
             setattr(problem, field, value)
         problem.updated_on = self._now()
@@ -322,6 +368,10 @@ class ProblemToolsMixin(ItsmToolsBase):
         Returns:
             A dict with 'problems' (the matching problems) and 'total_count'.
         """
+        # The reference validates enum-typed filters too (invalid value -> error, not empty result).
+        self._validate_problem_enums(
+            status=status, priority=priority, impact=impact, urgency=urgency, category=category,
+        )
         exact_filters = {
             "problem_id": problem_id, "number": number, "service": service,
             "service_offering": service_offering, "configuration_item": configuration_item,

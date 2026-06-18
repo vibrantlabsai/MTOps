@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import UserGroup, UserGroupMember
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
@@ -16,6 +17,10 @@ class GroupToolsMixin(ItsmToolsBase):
     """User-group and group-membership management tools."""
 
     # ----------------------------------------------------------------- helpers
+    def _validate_group_enums(self, *, type=None) -> None:
+        """Reject out-of-set enum values, mirroring the reference's request-body enum gate."""
+        self._check_enum("type", type, enums.GROUP_TYPE)
+
     def _require_group_exists(self, group_id: str) -> UserGroup:
         group = self.db.user_group.get(group_id)
         if group is None:
@@ -41,6 +46,22 @@ class GroupToolsMixin(ItsmToolsBase):
             if g.name == name:
                 return True
         return False
+
+    def _raise_collected(self, errors: "list[tuple[str, str, Optional[str]]]") -> None:
+        """Surface accumulated create-validation failures the way the reference does.
+
+        The reference's create path collects every business-rule failure rather than
+        short-circuiting on the first: a lone failure is raised with its own code/message,
+        while two or more are aggregated under a single ``VALIDATION_ERROR`` /
+        "One or more validation errors occurred" envelope (each ``errors`` tuple is
+        ``(code, message, field)``).
+        """
+        if not errors:
+            return
+        if len(errors) == 1:
+            code, message, field = errors[0]
+            raise ItsmError(message, code=code, field=field)
+        raise ItsmError("One or more validation errors occurred", code="VALIDATION_ERROR")
 
     @staticmethod
     def _normalize_ts(value: Optional[str]) -> str:
@@ -75,17 +96,38 @@ class GroupToolsMixin(ItsmToolsBase):
         Returns:
             The newly created user group.
         """
-        manager = self._require_user_exists(manager_id, field="manager_id")
-        if manager.role != "manager":
-            raise ItsmError(
-                f"User '{manager_id}' does not have manager role (current role: {manager.role})",
-                code="INVALID_MANAGER_ROLE", field="manager_id",
-            )
+        # Request-body validation (the reference's pydantic gate) runs before the business
+        # rule checks below: invalid enum value, then empty email are rejected outright.
+        self._validate_group_enums(type=type)
+        if email is not None and email.strip() == "":
+            raise ItsmError("Email cannot be empty", code="VALIDATION_ERROR", field="email")
+        # The reference normalizes empty free-text fields to NULL before persisting.
+        if description == "":
+            description = None
+
+        # The reference accumulates ALL business-rule failures and surfaces them together,
+        # in this fixed order: name-dup, email-dup, manager-exists, manager-role.
+        errors: "list[tuple[str, str, Optional[str]]]" = []
         if self._name_in_use(name):
-            raise ItsmError(
-                f"A group with name '{name}' already exists",
-                code="DUPLICATE_GROUP_NAME", field="name",
+            errors.append(
+                ("DUPLICATE_GROUP_NAME", f"A group with name '{name}' already exists", "name")
             )
+        if email is not None and any(g.email == email for g in self.db.user_group.values()):
+            errors.append(
+                ("DUPLICATE_GROUP_EMAIL", f"A group with email '{email}' already exists", "email")
+            )
+        manager = self.db.users.get(manager_id)
+        if manager is None:
+            errors.append(
+                ("MANAGER_NOT_FOUND", f"User with ID '{manager_id}' not found", "manager_id")
+            )
+        elif manager.role != "manager":
+            errors.append((
+                "INVALID_MANAGER_ROLE",
+                f"User '{manager_id}' does not have manager role (current role: {manager.role})",
+                "manager_id",
+            ))
+        self._raise_collected(errors)
 
         group_id, _ = self._make_id(self.db.user_group, "GROUP")
         now = self._now()
@@ -123,6 +165,7 @@ class GroupToolsMixin(ItsmToolsBase):
         Returns:
             The updated user group.
         """
+        self._validate_group_enums(type=type)
         group = self._require_group_exists(group_id)
 
         provided = {
@@ -145,7 +188,9 @@ class GroupToolsMixin(ItsmToolsBase):
 
         unchanged = {k: v for k, v in provided.items() if getattr(group, k) == v}
         if len(unchanged) == len(provided):
-            same = ", ".join(f"{k}={v!r}" for k, v in provided.items())
+            # The reference renders every value string-coerced (e.g. active -> 'True'), so quote
+            # the str() form rather than the raw repr (which would print a bare True for bools).
+            same = ", ".join(f"{k}={str(v)!r}" for k, v in provided.items())
             raise ItsmError(
                 "No changes detected. All provided fields already have the same values: "
                 f"{same}. Please provide different values or omit unchanged fields.",
@@ -213,10 +258,22 @@ class GroupToolsMixin(ItsmToolsBase):
 
         if member_id:
             target = self.db.user_group_member.get(member_id)
-            if target is None or target.group_id != group_id or target.user_id != user_id:
+            # The reference distinguishes these three cases (the first maps to NOT_FOUND/404,
+            # the other two to VALIDATION_ERROR) rather than collapsing them into one error.
+            if target is None:
                 raise ItsmError(
                     f"Group member not found with identifier '{member_id}'",
                     code="NOT_FOUND", field="member_id",
+                )
+            if target.group_id != group_id:
+                raise ItsmError(
+                    f"Member '{member_id}' does not belong to group '{group_id}'",
+                    code="VALIDATION_ERROR",
+                )
+            if target.user_id != user_id:
+                raise ItsmError(
+                    f"Member '{member_id}' does not belong to user '{user_id}'",
+                    code="VALIDATION_ERROR",
                 )
             del self.db.user_group_member[member_id]
             return {"message": "Group membership removed successfully"}
@@ -273,6 +330,8 @@ class GroupToolsMixin(ItsmToolsBase):
         Returns:
             A mapping with 'user_groups' (the matching groups) and 'total_count'.
         """
+        # The reference validates enum-typed filters too (invalid value -> error, not empty result).
+        self._validate_group_enums(type=type)
         out: List[UserGroup] = []
         for g in self.db.user_group.values():
             if group_id is not None and g.group_id != group_id:

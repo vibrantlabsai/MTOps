@@ -85,6 +85,25 @@ class ItsmToolsBase(ToolKitBase):
             raise ItsmError(f"User with ID '{user_id}' not found", field="user_id")
         return user.org_id
 
+    # -- enum validation ----------------------------------------------------
+    def _check_enum(
+        self, field: str, value: Optional[str], allowed: "frozenset[str]"
+    ) -> None:
+        """Reject a value outside its canonical set, mirroring the reference's enum gate.
+
+        ``None`` (field not supplied) is always allowed. The check is case-sensitive — the
+        reference rejects wrong-case values rather than normalizing them (the one field that does
+        normalize, ``incident_sla.stage``, lower()s before calling this). Canonical sets live in
+        ``eops_gym.domains.itsm.enums``.
+        """
+        if value is not None and value not in allowed:
+            allowed_str = ", ".join(repr(v) for v in sorted(allowed))
+            raise ItsmError(
+                f"Invalid value '{value}' for '{field}'. Must be one of: {allowed_str}",
+                code="INVALID_ENUM_VALUE",
+                field=field,
+            )
+
     # -- existence checks ---------------------------------------------------
     def _require_user(self, user_id: Optional[str], field: str) -> None:
         if user_id is not None and user_id not in self.db.users:
@@ -103,3 +122,27 @@ class ItsmToolsBase(ToolKitBase):
         if inc is None:
             raise ItsmError(f"Incident with ID '{incident_id}' not found", field=field)
         return inc
+
+    def _require_service(self, service_id: Optional[str], field: str = "service") -> None:
+        if service_id is not None and service_id not in self.db.service:
+            raise ItsmError(f"Service with ID '{service_id}' not found", field=field)
+
+    def _require_service_offering(
+        self, offering_id: Optional[str], field: str = "service_offering"
+    ) -> None:
+        if offering_id is not None and offering_id not in self.db.service_offering:
+            raise ItsmError(f"Service offering with ID '{offering_id}' not found", field=field)
+
+    def _require_problem(self, problem_id: Optional[str], field: str = "problem") -> None:
+        if problem_id is not None and problem_id not in self.db.problem:
+            raise ItsmError(f"Problem with ID '{problem_id}' not found", field=field)
+
+    def _require_change(self, change_id: Optional[str], field: str = "change_request") -> None:
+        if change_id is not None and change_id not in self.db.change:
+            raise ItsmError(f"Change request with ID '{change_id}' not found", field=field)
+
+    def _require_incident_template(
+        self, template_id: Optional[str], field: str = "incident_template"
+    ) -> None:
+        if template_id is not None and template_id not in self.db.incident_template:
+            raise ItsmError(f"Incident template with ID '{template_id}' not found", field=field)
