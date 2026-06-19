@@ -104,6 +104,21 @@ class ItsmToolsBase(ToolKitBase):
                 field=field,
             )
 
+    def _reject_empty(self, field: str, value: Optional[str]) -> None:
+        """Reject an empty string for a ``min_length=1``-constrained field.
+
+        Mirrors the reference's pydantic request-body field constraint: such a field rejects ``''``
+        outright (``string_too_short``) rather than normalizing it to None/clearing the column —
+        so the rejection fires even when other valid fields are present in the same call. ``None``
+        (field not supplied) is skipped.
+        """
+        if value == "":
+            raise ItsmError(
+                "String should have at least 1 character",
+                code="VALIDATION_ERROR",
+                field=field,
+            )
+
     # -- existence checks ---------------------------------------------------
     def _require_user(self, user_id: Optional[str], field: str) -> None:
         if user_id is not None and user_id not in self.db.users:

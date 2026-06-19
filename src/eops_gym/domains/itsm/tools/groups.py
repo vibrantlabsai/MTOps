@@ -5,12 +5,18 @@ Covers user-group CRUD/search and group-membership management.
 
 from __future__ import annotations
 
+import re
 from typing import List, Optional
 
 from eops_gym.domains.itsm import enums
 from eops_gym.domains.itsm.data_model import UserGroup, UserGroupMember
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
+
+# Group email format gate — mirrors the reference's pydantic field validator in
+# ``schemas/group``. Same regex shape as the users router, but the reference surfaces a distinct
+# message here ("Email must be a valid email address …") with a plain value_error (no error_code).
+_GROUP_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
 
 
 class GroupToolsMixin(ItsmToolsBase):
@@ -101,6 +107,11 @@ class GroupToolsMixin(ItsmToolsBase):
         self._validate_group_enums(type=type)
         if email is not None and email.strip() == "":
             raise ItsmError("Email cannot be empty", code="VALIDATION_ERROR", field="email")
+        if email is not None and not _GROUP_EMAIL_RE.match(email):
+            raise ItsmError(
+                "Email must be a valid email address (e.g., user@example.com)",
+                code="VALIDATION_ERROR", field="email",
+            )
         # The reference normalizes empty free-text fields to NULL before persisting.
         if description == "":
             description = None
@@ -166,6 +177,7 @@ class GroupToolsMixin(ItsmToolsBase):
             The updated user group.
         """
         self._validate_group_enums(type=type)
+        self._reject_empty("name", name)
         group = self._require_group_exists(group_id)
 
         provided = {

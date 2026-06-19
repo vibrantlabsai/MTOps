@@ -135,6 +135,18 @@ class ProblemToolsMixin(ItsmToolsBase):
         self._validate_problem_enums(
             status=status, priority=priority, impact=impact, urgency=urgency, category=category,
         )
+        # The reference normalizes empty-string fields to None on create (stored as NULL), before
+        # FK validation — so e.g. service='' is a no-op clear, not a bad reference.
+        service = self._blank_to_none(service)
+        service_offering = self._blank_to_none(service_offering)
+        configuration_item = self._blank_to_none(configuration_item)
+        assigned_to = self._blank_to_none(assigned_to)
+        assignment_group = self._blank_to_none(assignment_group)
+        original_task = self._blank_to_none(original_task)
+        short_description = self._blank_to_none(short_description)
+        worknotes = self._blank_to_none(worknotes)
+        workaround = self._blank_to_none(workaround)
+        fix_notes = self._blank_to_none(fix_notes)
         opened_by = self.acting_user_id
         self._validate_problem_fks(
             opened_by=opened_by, assigned_to=assigned_to, assignment_group=assignment_group,
@@ -243,14 +255,19 @@ class ProblemToolsMixin(ItsmToolsBase):
             "worknotes": worknotes, "workaround": workaround, "fix_notes": fix_notes,
             "impact": impact, "urgency": urgency, "priority": priority,
         }
-        active = {k: v for k, v in updates.items() if v is not None}
+        # Empty-string handling mirrors the reference's problem "drop" model: an explicit '' is
+        # treated as not-provided (dropped from the update), so it can never clear a column and a
+        # call carrying only ''-valued fields surfaces as "No fields provided for update". Because
+        # dropped fields never reach the FK check, passing e.g. service='' is a no-op, not a bad ref.
+        active = {k: v for k, v in updates.items() if v is not None and v != ""}
         if not active:
             raise ItsmError("No fields provided for update")
 
         self._validate_problem_fks(
-            opened_by=opened_by, assigned_to=assigned_to, assignment_group=assignment_group,
-            configuration_item=configuration_item, service=service,
-            service_offering=service_offering, original_task=original_task,
+            opened_by=active.get("opened_by"), assigned_to=active.get("assigned_to"),
+            assignment_group=active.get("assignment_group"),
+            configuration_item=active.get("configuration_item"), service=active.get("service"),
+            service_offering=active.get("service_offering"), original_task=active.get("original_task"),
         )
 
         # No-changes-detected idempotency. The reference's check is text/ref-field-sensitive:

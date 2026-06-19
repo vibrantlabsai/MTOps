@@ -149,6 +149,9 @@ class ConfigurationItemToolsMixin(ItsmToolsBase):
         # Body-level numeric validation (cost >= 0) is rejected before the CI existence check,
         # mirroring the reference's request-schema validation order.
         self._validate_ci_cost(cost)
+        # ``serial_number`` carries a min_length=1 constraint (rejects '' outright); ``name`` does
+        # not (the reference stores an empty name as-is), so only serial_number is guarded here.
+        self._reject_empty("serial_number", serial_number)
         ci = self.db.configuration_item.get(configuration_item_id)
         if ci is None:
             raise ItsmError(

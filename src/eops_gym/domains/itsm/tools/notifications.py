@@ -171,6 +171,10 @@ class NotificationToolsMixin(ItsmToolsBase):
         """
         # Enum validation first (the reference validates the request body before FK checks).
         self._validate_notification_enums(type=type, status=status)
+        # ``subject``/``message`` carry a min_length=1 constraint — '' is rejected at the request
+        # boundary (before the notification-existence check), not stored or treated as a no-op.
+        self._reject_empty("subject", subject)
+        self._reject_empty("message", message)
         notification = self._require_notification(notification_id)
         updates = {
             "incident_id": incident_id,

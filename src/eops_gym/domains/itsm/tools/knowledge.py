@@ -89,6 +89,12 @@ class KnowledgeToolsMixin(ItsmToolsBase):
         """
         # Enum validation first (the reference validates the request body before FK checks).
         self._validate_knowledge_enums(state=state, visibility=visibility)
+        # The create schema rejects an explicit empty ``body`` (distinct from the update path, which
+        # treats body='' as a clear-to-NULL); the reference's validator message is verbatim below.
+        if body == "":
+            raise ItsmError(
+                "Field cannot be empty string", code="VALIDATION_ERROR", field="body"
+            )
         self._require_owner(owner_id)
         self._check_duplicate_article(title, owner_id, self._acting_org())
 
@@ -149,7 +155,16 @@ class KnowledgeToolsMixin(ItsmToolsBase):
             "title": title, "body": body, "state": state,
             "visibility": visibility, "owner_id": owner_id,
         }
+        # Empty-string handling mirrors the reference's knowledge "clear" model: an explicit '' is
+        # normalized to None and the (nullable) column is cleared; ''-as-None for the NOT NULL
+        # ``title`` violates the column constraint (VALIDATION_ERROR). A cleared owner_id is not
+        # FK-checked (clearing a link never triggers existence validation).
         provided = {k: v for k, v in updates.items() if v is not None}
+        for k in list(provided):
+            if provided[k] == "":
+                if k == "title":
+                    raise ItsmError("title cannot be empty", code="VALIDATION_ERROR", field="title")
+                provided[k] = None
         if not provided:
             raise ItsmError(
                 "At least one field must be provided for update besides the identifier",
@@ -164,13 +179,13 @@ class KnowledgeToolsMixin(ItsmToolsBase):
                 field=None,
             )
 
-        self._require_owner(owner_id)
+        self._require_owner(provided.get("owner_id"))
 
         # Reject a (title, owner) collision with a DIFFERENT article in the org.
-        if title is not None or owner_id is not None:
+        if "title" in provided or "owner_id" in provided:
             self._check_duplicate_article(
-                title if title is not None else article.title,
-                owner_id if owner_id is not None else article.owner_id,
+                provided["title"] if "title" in provided else article.title,
+                provided["owner_id"] if "owner_id" in provided else article.owner_id,
                 article.org_id,
                 exclude_id=knowledge_id,
             )

@@ -13,6 +13,12 @@ from eops_gym.domains.itsm.data_model import ChildIncident, Incident
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
 
+# Non-enum NOT NULL incident columns exposed as ``update_incident`` text params. Passing '' for
+# one is normalized to None by the reference, which then trips the column's NOT NULL constraint
+# (VALIDATION_ERROR). The enum NOT NULL columns (status/category/impact/urgency/priority) are
+# already rejected by the enum gate when given '', so they need no separate guard here.
+_INC_NOT_NULL_TEXT = frozenset({"number", "short_description", "caller_id"})
+
 
 class IncidentToolsMixin(ItsmToolsBase):
     """Incident management tools."""
@@ -296,16 +302,6 @@ class IncidentToolsMixin(ItsmToolsBase):
             channel=channel, on_hold_reason=on_hold_reason, resolution_code=resolution_code,
         )
         incident = self._require_incident(incident_id)
-        # Collect ALL invalid references into one combined error (matches the reference's
-        # aggregated VALIDATION_ERROR), instead of stopping at the first bad ref.
-        errors = self._collect_ref_errors(
-            caller_id=caller_id, assigned_to=assigned_to, assignment_group=assignment_group,
-            resolved_by=resolved_by, service=service, service_offering=service_offering,
-            configuration_item=configuration_item, problem=problem, change_request=change_request,
-            caused_by_change=caused_by_change, incident_template=incident_template,
-        )
-        if errors:
-            raise ItsmError("; ".join(errors), code="VALIDATION_ERROR")
 
         updates = {
             "number": number, "service": service, "service_offering": service_offering,
@@ -321,12 +317,40 @@ class IncidentToolsMixin(ItsmToolsBase):
             "resolved_by": resolved_by, "on_hold_reason": on_hold_reason,
             "incident_template": incident_template, "resolved": resolved,
         }
-        # A no-op update (every provided field already equals the stored value) is rejected, not
-        # silently re-stamped — matches the reference's "no changes detected" (both text and enum
-        # fields trigger it for incidents).
+        # Empty-string handling mirrors the reference's incident "clear" model: an explicit '' is
+        # normalized to None and the (nullable) column is CLEARED. A field is "provided" when its
+        # arg is not None, so an explicit '' counts (and clears) — distinct from an omitted field.
+        # Passing '' for a NOT NULL column (number/short_description/caller_id; the enum NOT NULL
+        # columns are already rejected above) violates the column constraint -> VALIDATION_ERROR.
         provided = {k: v for k, v in updates.items() if v is not None}
+        for k in list(provided):
+            if provided[k] == "":
+                if k in _INC_NOT_NULL_TEXT:
+                    raise ItsmError(f"{k} cannot be empty", code="VALIDATION_ERROR", field=k)
+                provided[k] = None
+
+        # Collect ALL invalid references into one combined error (matches the reference's
+        # aggregated VALIDATION_ERROR), instead of stopping at the first bad ref. Cleared (None)
+        # references are skipped — clearing a link never triggers an existence check.
+        errors = self._collect_ref_errors(
+            caller_id=provided.get("caller_id"), assigned_to=provided.get("assigned_to"),
+            assignment_group=provided.get("assignment_group"), resolved_by=provided.get("resolved_by"),
+            service=provided.get("service"), service_offering=provided.get("service_offering"),
+            configuration_item=provided.get("configuration_item"), problem=provided.get("problem"),
+            change_request=provided.get("change_request"),
+            caused_by_change=provided.get("caused_by_change"),
+            incident_template=provided.get("incident_template"),
+        )
+        if errors:
+            raise ItsmError("; ".join(errors), code="VALIDATION_ERROR")
+
+        # A no-op update is rejected, not silently re-stamped — matches the reference's
+        # "no changes detected" (both text and enum fields trigger it for incidents). An id-only
+        # call (no updatable fields supplied) is the zero-field case of this: the reference also
+        # surfaces it as NO_CHANGES_DETECTED with the empty "...for fields: " list, so the guard
+        # fires whenever nothing actually changed — including when ``provided`` is empty.
         changed = {k: v for k, v in provided.items() if getattr(incident, k) != v}
-        if provided and not changed:
+        if not changed:
             raise ItsmError(
                 "No changes detected for fields: " + ", ".join(provided),
                 code="NO_CHANGES_DETECTED",

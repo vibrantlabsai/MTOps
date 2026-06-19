@@ -17,10 +17,13 @@ from eops_gym.domains.itsm.data_model import User
 from eops_gym.domains.itsm.tools._base import ItsmError, ItsmToolsBase
 from eops_gym.environment.toolkit import ToolType, is_tool
 
-# Email format gate for get_user_using_email (mirrors the reference's pre-lookup validation:
-# malformed addresses are rejected with INVALID_EMAIL_FORMAT before any DB lookup). The reference
-# requires a TLD of at least 2 chars (e.g. 'a@b.c' / 'x@y.z' are rejected; 'a@b.co' is accepted).
+# Email/phone format gates mirror the reference's pydantic request-body field validators
+# (``apis/users/router``): a malformed address/number is rejected with INVALID_EMAIL_FORMAT /
+# INVALID_PHONE_FORMAT before any FK/uniqueness/lookup logic. The email regex requires a TLD of
+# at least 2 chars (e.g. 'a@b.c' / 'x@y.z' are rejected; 'a@b.co' is accepted); the phone regex
+# is the reference's ``+<1-3 digit cc>-<3>-<3>-<4>`` shape (e.g. '+1-415-555-0101').
 _USR_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+_USR_PHONE_RE = re.compile(r"^\+\d{1,3}-\d{3}-\d{3}-\d{4}$")
 
 
 class UserToolsMixin(ItsmToolsBase):
@@ -30,6 +33,25 @@ class UserToolsMixin(ItsmToolsBase):
     def _validate_user_enums(self, *, role=None) -> None:
         """Reject out-of-set enum values, mirroring the reference's request-body enum gate."""
         self._check_enum("role", role, enums.USER_ROLE)
+
+    def _validate_user_contact_formats(
+        self, *, email: Optional[str] = None, phone: Optional[str] = None
+    ) -> None:
+        """Reject malformed email/phone, mirroring the reference's pydantic field validators.
+
+        Runs at the request boundary (before FK/uniqueness checks); ``None`` (field not supplied)
+        is skipped. Email must match ``user@domain.tld``; phone must be ``+<cc>-XXX-XXX-XXXX``.
+        """
+        if email is not None and not _USR_EMAIL_RE.match(email):
+            raise ItsmError(
+                f"Invalid email format provided: '{email}'",
+                code="INVALID_EMAIL_FORMAT", field="email",
+            )
+        if phone is not None and not _USR_PHONE_RE.match(phone):
+            raise ItsmError(
+                f"Invalid phone format provided: '{phone}'",
+                code="INVALID_PHONE_FORMAT", field="phone",
+            )
 
     @staticmethod
     def _gen_user_name(first_name: str, last_name: str) -> str:
@@ -93,8 +115,10 @@ class UserToolsMixin(ItsmToolsBase):
         Returns:
             The newly created user.
         """
-        # Enum validation first (the reference validates the request body before FK/existence checks).
+        # Request-body validation first (the reference validates the body before FK/existence
+        # checks): enum-typed role, then email/phone format.
         self._validate_user_enums(role=role)
+        self._validate_user_contact_formats(email=email, phone=phone)
         self._usr_require_location(location_id)
 
         org_id = self._acting_org()
@@ -167,8 +191,12 @@ class UserToolsMixin(ItsmToolsBase):
         Returns:
             The updated user.
         """
-        # Enum validation first (the reference validates the request body before FK/existence checks).
+        # Request-body validation first (the reference validates the body before FK/existence
+        # checks): enum-typed role, then email/phone format (only for supplied fields).
         self._validate_user_enums(role=role)
+        self._validate_user_contact_formats(email=email, phone=phone)
+        self._reject_empty("first_name", first_name)
+        self._reject_empty("last_name", last_name)
         user = self.db.users.get(user_id)
         if user is None:
             raise ItsmError(

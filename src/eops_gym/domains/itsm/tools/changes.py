@@ -133,6 +133,18 @@ class ChangeToolsMixin(ItsmToolsBase):
             status=status, priority=priority, impact=impact, risk=risk,
             category=category, close_code=close_code,
         )
+        # The reference normalizes empty-string fields to None on create (stored as NULL), before
+        # FK validation — so e.g. service='' is a no-op clear, not a bad reference.
+        service = self._blank_to_none(service)
+        service_offering = self._blank_to_none(service_offering)
+        configuration_item = self._blank_to_none(configuration_item)
+        assigned_to = self._blank_to_none(assigned_to)
+        assignment_group = self._blank_to_none(assignment_group)
+        short_description = self._blank_to_none(short_description)
+        description = self._blank_to_none(description)
+        implementation_plan = self._blank_to_none(implementation_plan)
+        testing_plan = self._blank_to_none(testing_plan)
+        close_notes = self._blank_to_none(close_notes)
         self._require_user(assigned_to, "assigned_to")
         self._require_group(assignment_group)
         self._require_ci(configuration_item)
@@ -242,28 +254,33 @@ class ChangeToolsMixin(ItsmToolsBase):
             "close_notes": close_notes, "status": status, "impact": impact,
             "risk": risk, "priority": priority,
         }
-        provided = {k: v for k, v in updates.items() if v is not None}
+        # Empty-string handling mirrors the reference's change "drop" model: an explicit '' is
+        # treated as not-provided (dropped), so it can never clear a column and a call carrying only
+        # ''-valued fields surfaces as "No fields provided for update". Dropped fields never reach
+        # the FK/uniqueness checks, so e.g. service='' is a no-op rather than a bad reference.
+        provided = {k: v for k, v in updates.items() if v is not None and v != ""}
         if not provided:
             raise ItsmError("No fields provided for update", code="VALIDATION_ERROR")
 
         change = self._chg_require_change(change_id)
-        self._require_user(requested_by, "requested_by")
-        self._require_user(assigned_to, "assigned_to")
-        self._require_group(assignment_group)
-        self._require_ci(configuration_item)
-        self._chg_require_service(service)
-        self._chg_require_service_offering(service_offering)
+        self._require_user(provided.get("requested_by"), "requested_by")
+        self._require_user(provided.get("assigned_to"), "assigned_to")
+        self._require_group(provided.get("assignment_group"))
+        self._require_ci(provided.get("configuration_item"))
+        self._chg_require_service(provided.get("service"))
+        self._chg_require_service_offering(provided.get("service_offering"))
 
         # Number must stay unique within the org.
-        if number is not None:
+        number_val = provided.get("number")
+        if number_val is not None:
             for other in self.db.change.values():
                 if (
                     other.change_id != change_id
                     and other.org_id == change.org_id
-                    and other.number == number
+                    and other.number == number_val
                 ):
                     raise ItsmError(
-                        f"Change with number '{number}' already exists in organization "
+                        f"Change with number '{number_val}' already exists in organization "
                         f"'{change.org_id}'",
                         code="DUPLICATE_NUMBER",
                         field="number",
