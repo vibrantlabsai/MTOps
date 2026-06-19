@@ -81,7 +81,10 @@ def test_valid_role_name_still_passes(db):
 
 # --- composite keys ----------------------------------------------------------
 def test_user_role_body_field_mismatch(db):
-    key = next(iter(db.user_role))  # "USER_001:ROLE_001:ORG_001"
+    # Pick a user_role whose key segment role_id is NOT the value we're about to set, so the
+    # composite-key-vs-body mismatch genuinely fires. ROLE_002 is a real role, so this is a pure
+    # key/body disagreement (not a dangling-FK error). Key shape: "USER_xxx:ROLE_xxx:ORG_xxx".
+    key = next(k for k in db.user_role if k.split(":")[1] != "ROLE_002")
     db.user_role[key].role_id = "ROLE_002"  # body now disagrees with the key segment
     with pytest.raises(ValueError, match=r"role_id='ROLE_002'"):
         db.validate_integrity()

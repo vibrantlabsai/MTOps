@@ -34,7 +34,16 @@ from eops_gym.domains.itsm.data_model import ItsmDB  # noqa: E402
 from eops_gym.domains.itsm.tools import ItsmTools  # noqa: E402
 
 SEED_JSON = Path(__file__).resolve().parents[1] / "data" / "itsm" / "db.json"
-ACTING_USER = "USER_001"  # marcus / ORG_001 admin — matches the oracle's ADMIN_TOKEN
+ACTING_USER = "USER_039"  # karen.watkins — an active ORG_001 admin in the 20-org seed
+# The reference authenticates by the acting user's per-user ``static_token`` (the old shared
+# ``admin_token_marcus_2024_secure`` does not exist in the 20-org seed; USER_001 is now inactive).
+# This JWT is USER_039's ``static_token`` from the seed, so the port (``acting_user_id``) and the
+# reference act as the SAME identity — preserving the original "ORG_001 admin" intent.
+ACTING_TOKEN = (
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+    "eyJzdWIiOiJVU0VSXzAzOSIsImlzcyI6Iml0c20ifQ."
+    "Ab6_dflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_yz1"
+)
 
 
 @dataclass
@@ -75,11 +84,30 @@ def _oracle_is_error(result: Any) -> bool:
 
 
 def _run_oracle(calls: list[tuple[str, dict]]) -> tuple[list[bool], MCPOracle]:
-    o = MCPOracle("conformance")
+    o = MCPOracle("conformance", token=ACTING_TOKEN)
     outcomes: list[bool] = []
     for tool, args in calls:
         outcomes.append(not _oracle_is_error(o.call(tool, args)))
     return outcomes, o
+
+
+def _normalize_member_ids(dump: dict) -> dict:
+    """Neutralise a pure cross-export PK-label artifact in ``user_group_member``.
+
+    The port seed (``data/itsm/db.json``) labels its membership rows ``MEMBER_xxx`` while the
+    reference's canonical SQL seed labels the *identical* rows ``MEM_xxx``; every other column
+    matches. That synthetic id is orthogonal to any tool call, so for state comparisons we re-key
+    the rows by their natural ``(group_id, user_id)`` identity and drop the synthetic ``member_id``.
+    This keeps full membership *content* parity in scope without tripping on the label difference.
+    """
+    coll = dump.get("user_group_member")
+    if not coll:
+        return dump
+    rekeyed: dict[str, dict] = {}
+    for row in coll.values():
+        row = {k: v for k, v in row.items() if k != "member_id"}
+        rekeyed[f"{row.get('group_id')}:{row.get('user_id')}"] = row
+    return {**dump, "user_group_member": rekeyed}
 
 
 # ---------------------------------------------------------------------------- scenarios
@@ -88,11 +116,12 @@ SCENARIOS: list[Scenario] = [
     Scenario("pos_find_incident", [("find_incident_by_id", {"incident_id": "INC_001"})]),
     Scenario(
         "pos_update_new_to_resolved",  # the calibration case: there is NO status state machine
-        [("update_incident", {"incident_id": "INC_016", "status": "resolved"})],
+        # INC_012 is genuinely status='new' in the 20-org seed (ORG_001) — new->resolved must succeed
+        [("update_incident", {"incident_id": "INC_012", "status": "resolved"})],
     ),
     Scenario(
-        "pos_create_incident_valid",
-        [("create_incident", {"caller_id": "USER_002", "short_description": "harness sanity"})],
+        "pos_create_incident_valid",  # USER_005 is an active ORG_001 caller in the 20-org seed
+        [("create_incident", {"caller_id": "USER_005", "short_description": "harness sanity"})],
     ),
 
     # -- enum_validation (§4.1): FIXED — port now rejects invalid/wrong-case enums (guards regression)
@@ -126,8 +155,8 @@ SCENARIOS: list[Scenario] = [
              [("remove_affected_ci_from_incident", {})], tags=["delete"]),
 
     # -- idempotency (§4.5): FIXED — a no-op update now errors instead of re-stamping updated_on ---
-    Scenario("noop_update_notification",
-             [("update_notification", {"notification_id": "NOTIF_001", "status": "delivered"})],
+    Scenario("noop_update_notification",  # NOTIF_001 is already 'opened' in the seed — a true no-op
+             [("update_notification", {"notification_id": "NOTIF_001", "status": "opened"})],
              tags=["idempotency"]),
     Scenario("noop_update_incident_sla_only_id",
              [("update_incident_sla_details", {"incident_sla_id": "TSLA_001"})],
@@ -209,5 +238,8 @@ def test_conformance(s: Scenario):
         assert all(port_out) and all(orc_out), (
             f"setup calls errored — port={port_out} reference={orc_out}"
         )
-        diffs = diff_db(port_db.model_dump(), orc.dump_db())
+        diffs = diff_db(
+            _normalize_member_ids(port_db.model_dump()),
+            _normalize_member_ids(orc.dump_db()),
+        )
         assert not diffs, "DB state diverges:\n" + "\n".join(diffs[:15])

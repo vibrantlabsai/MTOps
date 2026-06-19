@@ -373,7 +373,7 @@ _ID_SPEC: Dict[str, Tuple[str, str]] = {
     "location": ("LOC", "location_id"),
     "users": ("USER", "user_id"),
     "user_group": ("GROUP", "group_id"),
-    "user_group_member": ("MEMBER", "member_id"),
+    "user_group_member": ("MEM", "member_id"),
     "service": ("SVC", "service_id"),
     "service_offering": ("SVCOFF", "service_offering_id"),
     "configuration_item": ("CI", "configuration_item_id"),

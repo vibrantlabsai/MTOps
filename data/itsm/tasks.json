@@ -56,26 +56,26 @@
     "scenario": {
       "persona": {
         "identity": {
-          "user_id": "USER_003",
-          "first_name": "Carlos",
-          "last_name": "Rodriguez",
-          "email": "carlos.rodriguez@techcorp.com",
+          "user_id": "USER_033",
+          "first_name": "Zachary",
+          "last_name": "Mcintosh",
+          "email": "zachary.mcintosh3@servicenow.com",
           "role": "agent"
         },
         "personality": "A conscientious support engineer who clears his on-hold queue promptly and keeps callers informed.",
         "role_description": "IT support agent",
         "known_info": {
-          "user_id": "USER_003",
-          "name": "Carlos Rodriguez",
-          "email": "carlos.rodriguez@techcorp.com",
-          "incident_number": "INC0000003"
+          "user_id": "USER_033",
+          "name": "Zachary Mcintosh",
+          "email": "zachary.mcintosh3@servicenow.com",
+          "incident_number": "INC-000056"
         }
       },
-      "task_description": "Incident INC0000003 (the printer connectivity issue) has been sitting on hold waiting on a vendor part, which has now arrived. Please pick the work back up and move it forward, and let the person who reported it know that we've resumed working on it."
+      "task_description": "Incident INC-000056 (the point-of-sale terminal that's offline) has been sitting on hold waiting on a replacement part from the vendor, which has now arrived. Please pick the work back up and move it forward, and let the person who reported it know that we've resumed working on it."
     },
     "initial_state_delta": {
       "incident": {
-        "INC_003": {
+        "INC_056": {
           "set": {
             "status": "on_hold",
             "on_hold_reason": "Awaiting replacement part from vendor"
@@ -88,24 +88,24 @@
         {
           "name": "update_incident",
           "arguments": {
-            "incident_id": "INC_003",
+            "incident_id": "INC_056",
             "status": "in_progress"
           }
         },
         {
           "name": "send_notification",
           "arguments": {
-            "incident_id": "INC_003",
-            "email": "benjamin.chen@techcorp.com",
+            "incident_id": "INC_056",
+            "email": "cheryl.osborne@servicenow.com",
             "type": "update",
-            "subject": "Update on INC0000003 (Printer connectivity issue)",
-            "message": "Hi Benjamin, the replacement part has arrived and we've resumed work on your printer connectivity incident — it is now in progress."
+            "subject": "Update on INC-000056 (POS terminal offline)",
+            "message": "Hi Cheryl, the replacement part has arrived and we've resumed work on your point-of-sale terminal incident — it is now in progress."
           }
         }
       ],
       "nl_assertions": [
-        "Incident INC0000003 (INC_003), previously on hold, is moved back to in_progress.",
-        "The caller Benjamin Chen is sent an update notification to his email that work has resumed."
+        "Incident INC-000056 (INC_056), previously on hold, is moved back to in_progress.",
+        "The caller Cheryl Osborne is sent an update notification to her email that work has resumed."
       ]
     }
   },
