@@ -22,7 +22,7 @@ CONTAINER = os.environ.get("ITSM_ORACLE_CONTAINER", "eops-itsm")
 CANONICAL_SEED = os.environ.get(
     "ITSM_ORACLE_SEED",
     "/Users/ankitsridhar/Desktop/hobby/EnterpriseOps-Gym/"
-    "Domain Wise DBs and Task-DB Mappings/itsm/dbs/db_1765301900121_3mwjj54xy.sql",
+    "Domain Wise DBs and Task-DB Mappings/itsm/dbs/db_1766420030407_0anxy19de.sql",
 )
 ADMIN_TOKEN = os.environ.get("ITSM_ORACLE_TOKEN", "admin_token_marcus_2024_secure")
 
