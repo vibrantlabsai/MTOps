@@ -210,6 +210,53 @@ SCENARIOS: list[Scenario] = [
     Scenario("count_priority_no_args",
              [("get_count_of_incident_priority_wise", {})], tags=["schema"]),
 
+    # -- contact-format validation (users router pydantic field validators) ----------------------
+    Scenario("fmt_user_bad_phone",
+             [("add_new_user", {"first_name": "P", "last_name": "R", "email": "okp@x.com",
+                                "phone": "1", "role": "agent", "active": True})], tags=["format"]),
+    Scenario("fmt_user_bad_email",
+             [("add_new_user", {"first_name": "P", "last_name": "R", "email": "notanemail",
+                                "phone": "+1-555-100-2000", "role": "agent", "active": True})],
+             tags=["format"]),
+    Scenario("fmt_update_user_bad_phone",
+             [("update_user_details", {"user_id": "USER_039", "phone": "1"})], tags=["format"]),
+    Scenario("fmt_group_bad_email",  # USER_004 is an ORG_001 manager in the seed
+             [("add_new_user_group", {"name": "FmtGrpX", "type": "IT Support",
+                                      "manager_id": "USER_004", "email": "bademail"})],
+             tags=["format"]),
+
+    # -- no-op guard: update_incident with only the id is NO_CHANGES_DETECTED ---------------------
+    Scenario("noop_update_incident_id_only",
+             [("update_incident", {"incident_id": "INC_001"})], tags=["idempotency"]),
+
+    # -- empty-string CLEAR model (incident): '' clears a set nullable field (both accept) --------
+    Scenario("empty_incident_clear_service",
+             [("update_incident", {"incident_id": "INC_001", "service": ""})], tags=["empty"]),
+    # NOT NULL field passed '' is rejected by the column constraint
+    Scenario("empty_incident_notnull_reject",
+             [("update_incident", {"incident_id": "INC_001", "short_description": ""})],
+             tags=["empty"]),
+
+    # -- empty-string DROP model (problem/change): a sole '' field => "No fields provided" --------
+    Scenario("empty_problem_drop",
+             [("update_problem", {"problem_id": "PRB_001", "worknotes": ""})], tags=["empty"]),
+    Scenario("empty_change_drop",
+             [("update_change", {"change_id": "CHG_001", "description": ""})], tags=["empty"]),
+
+    # -- min_length=1 reject: '' rejected outright on these constrained fields --------------------
+    Scenario("minlen_ci_serial",
+             [("update_configuration_item", {"configuration_item_id": "CI_001", "serial_number": ""})],
+             tags=["empty"]),
+    Scenario("minlen_notification_subject",
+             [("update_notification", {"notification_id": "NOTIF_001", "subject": ""})],
+             tags=["empty"]),
+
+    # -- create-path empty-string normalization: '' FK normalized to None (both accept) ----------
+    Scenario("empty_create_problem_fk",
+             [("create_problem", {"problem_statement": "harness", "status": "new", "impact": "medium",
+                                  "urgency": "medium", "priority": "moderate", "service": ""})],
+             tags=["empty"]),
+
     # -- state parity (happy path): a real-change update must produce identical DB state ---------
     Scenario("state_update_incident_fields",
              [("update_incident",
