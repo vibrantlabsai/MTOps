@@ -1,10 +1,10 @@
 """ITSM environment + task loader factory."""
 
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 from eops_gym.data_model.tasks import Task
-from eops_gym.domains.itsm.data_model import ItsmDB, slice_db_to_org
+from eops_gym.domains.itsm.data_model import ItsmDB, slice_db_to_orgs
 from eops_gym.domains.itsm.tools import ItsmTools
 from eops_gym.environment.delta import Delta, apply_delta
 from eops_gym.environment.environment import Environment
@@ -23,18 +23,21 @@ def get_environment(
     db_delta: Optional[Delta | dict] = None,
     acting_user_id: Optional[str] = None,
     org_id: Optional[str] = None,
+    org_ids: Optional[Iterable[str]] = None,
 ) -> Environment:
     """Build a fresh ITSM environment: load ``db.json`` and apply the task delta (item 7).
 
-    ``acting_user_id`` is the authenticated caller from the task context (used for org
-    scoping in the tools). ``org_id`` makes the environment **single-tenant**: when set, the DB
-    is sliced to that org (after the delta is applied) so numbers/names that collide across orgs
-    resolve to the single in-org record. Left ``None``, the env stays multi-org (legacy behaviour).
+    ``acting_user_id`` is the authenticated caller from the task context. ``org_ids`` is the task's
+    **tenancy scope** — the set of orgs its data lives in (a 1-element set for single-tenant, the
+    ``{provider, client}`` pair for an MSP task). When given, the DB is sliced to that set (after the
+    delta) so numbers/names that collide *outside* the scope resolve unambiguously. ``org_id`` is the
+    legacy single-org alias (treated as a 1-element scope). Both ``None`` ⇒ no slice (multi-org).
     """
     db = ItsmDB.load(ITSM_DB_PATH)
     db = apply_delta(db, db_delta)
-    if org_id is not None:
-        db = slice_db_to_org(db, org_id)
+    scope = set(org_ids) if org_ids is not None else ({org_id} if org_id is not None else None)
+    if scope is not None:
+        db = slice_db_to_orgs(db, scope)
     policy = ITSM_POLICY_PATH.read_text(encoding="utf-8") if ITSM_POLICY_PATH.exists() else ""
     return Environment(
         domain_name=DOMAIN_NAME,

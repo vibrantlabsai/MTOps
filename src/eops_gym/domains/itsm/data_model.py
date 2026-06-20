@@ -12,7 +12,7 @@ most others created_on/updated_on) — preserved verbatim for DB-hash fidelity.
 import json
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -552,41 +552,70 @@ class ItsmDB(DB):
         return self
 
 
-def slice_db_to_org(db: "ItsmDB", org_id: str) -> "ItsmDB":
-    """Return a NEW ``ItsmDB`` scoped to a single org (single-tenant view for a task).
+def slice_db_to_orgs(db: "ItsmDB", org_ids: Optional[Set[str]]) -> "ItsmDB":
+    """Return a NEW ``ItsmDB`` scoped to a SET of orgs (the task's tenancy scope).
+
+    ``org_ids`` is the set of orgs a task touches — a 1-element set for single-tenant, the
+    ``{provider, client}`` pair for an MSP task, or ``None`` for no slice (flat / all orgs).
 
     Keep org-agnostic catalog rows (tables whose records have no ``org_id`` field — role,
-    permission, role_permission) plus every row whose ``org_id`` equals ``org_id`` (this also
-    narrows ``organization`` to the one org). Then prune dangling foreign-key references to a
-    fixed point — chiefly ``child_incident``, which has no ``org_id`` of its own but points at two
-    incidents; any mapping whose parent/child fell outside the org is dropped. The result
+    permission, role_permission) plus every row whose ``org_id`` is in ``org_ids`` (this also
+    narrows ``organization`` to those orgs). Then prune dangling foreign-key references to a fixed
+    point — chiefly ``child_incident``, which has no ``org_id`` of its own but points at two
+    incidents; any mapping whose parent/child fell outside the scope is dropped. The result
     re-validates (the ``model_validator`` re-runs ``validate_integrity``), so the slice is
-    guaranteed referentially consistent. Unambiguous lookups follow: numbers/names that collide
-    across orgs now resolve to the single in-org record.
+    guaranteed referentially consistent. Numbers/names that collide *outside* the scope now resolve
+    unambiguously to the in-scope record.
     """
+    if org_ids is None:
+        return db  # no slice — flat / multi-org view
     raw = db.model_dump()
-    # 1. Org filter: org-agnostic rows (no org_id field) stay; org-scoped rows keep iff in-org.
+    # FK-CLOSURE (not prune): keep the scope's org rows, then transitively PULL IN every row they
+    # reference, even across orgs. A self-contained org adds little; an MSP task (client incident
+    # owned in the client org, worked by a provider agent) pulls in the provider assignee, the
+    # assignment_group, and that group's manager — a complete, referentially-consistent subgraph.
+    # (The old prune dropped the *referencer*, which on a cross-org seed collapsed everything.)
+    keep: Dict[str, set] = {coll: set() for coll in raw}
+
+    # 1. Anchors: org-scoped rows whose org is in scope.
     for coll, rows in raw.items():
-        raw[coll] = {
-            rid: rec for rid, rec in rows.items()
-            if ("org_id" not in rec) or rec.get("org_id") == org_id
-        }
-    # 2. Prune dangling pk foreign keys to a fixed point (e.g. child_incident -> a dropped incident).
+        for rid, rec in rows.items():
+            if isinstance(rec, dict) and rec.get("org_id") in org_ids:
+                keep[coll].add(rid)
+
+    # 2. Closure: add every pk-FK referent of a kept row, to a fixed point (cross-org included).
     changed = True
     while changed:
         changed = False
-        for coll, fks in _FK_FIELDS.items():
-            kept = {}
-            for rid, rec in raw[coll].items():
-                dangling = any(
-                    kind == "pk"
-                    and rec.get(field) is not None
-                    and rec.get(field) not in raw[target]
-                    for field, target, kind in fks
-                )
-                if dangling:
-                    changed = True
-                else:
-                    kept[rid] = rec
-            raw[coll] = kept
-    return ItsmDB.model_validate(raw)
+        for coll in list(keep):
+            for rid in list(keep[coll]):
+                rec = raw[coll][rid]
+                for field, target, kind in _FK_FIELDS.get(coll, []):
+                    if kind != "pk":
+                        continue
+                    v = rec.get(field)
+                    if v is not None and v in raw.get(target, {}) and v not in keep[target]:
+                        keep[target].add(v)
+                        changed = True
+
+    # 3. Org-agnostic rows (no org_id field): pure catalog (role/permission/role_permission — no pk FK
+    #    to org data) is always kept; FK-bearing joins (child_incident) are kept only when every pk-FK
+    #    target already survived — so they never dangle and never drag out-of-scope rows back in.
+    for coll, rows in raw.items():
+        for rid, rec in rows.items():
+            if not isinstance(rec, dict) or "org_id" in rec:
+                continue
+            if all(
+                rec.get(field) is None or rec.get(field) in keep.get(target, set())
+                for field, target, kind in _FK_FIELDS.get(coll, [])
+                if kind == "pk"
+            ):
+                keep[coll].add(rid)
+
+    sliced = {coll: {rid: rows[rid] for rid in keep[coll]} for coll, rows in raw.items()}
+    return ItsmDB.model_validate(sliced)
+
+
+def slice_db_to_org(db: "ItsmDB", org_id: str) -> "ItsmDB":
+    """Back-compat single-org slice — a 1-element scope. See ``slice_db_to_orgs``."""
+    return slice_db_to_orgs(db, {org_id})
