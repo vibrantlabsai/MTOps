@@ -13,6 +13,7 @@ import sys
 from eops_gym.run import (
     DEFAULT_LLM_AGENT,
     TaskResult,
+    dump_trial_result,
     get_domain,
     list_domains,
     run_domain,
@@ -95,6 +96,13 @@ def _print_task_result(result: TaskResult, verbose: bool) -> None:
 
 
 def run_run(args: argparse.Namespace) -> None:
+    # When --log-dir is set, persist each trial's trajectory AS IT COMPLETES (not only at the end),
+    # so an interrupted/crashed run keeps the trajectories already produced.
+    def on_result(r: TaskResult) -> None:
+        _print_task_result(r, args.verbose)
+        if args.log_dir:
+            dump_trial_result(args.log_dir, r)
+
     results = run_domain(
         domain=args.domain,
         task_ids=args.task_ids,
@@ -105,7 +113,7 @@ def run_run(args: argparse.Namespace) -> None:
         max_steps=args.max_steps,
         k=args.k,
         seed=args.seed,
-        on_result=lambda r: _print_task_result(r, args.verbose),
+        on_result=on_result,
     )
     print("\n=== Summary ===")
     print(f"domain={results.domain}  agent={results.agent_llm}  user={results.user_llm}  judge={results.judge_llm}")

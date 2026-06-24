@@ -62,14 +62,26 @@ def get_tasks() -> list[Task]:
     Tasks are gathered from two optional sources and merged: ``tasks.json`` (a JSON list of
     tasks) and a ``tasks/`` directory (each ``*.json`` file holds one task object or a list of
     them). Duplicate task ids across the sources are rejected.
+
+    ``EOPS_ITSM_TASKS`` (a JSON file or a directory) overrides both sources when set, so a run can
+    evaluate an arbitrary task set without touching the shipped ``tasks.json`` — the run-time
+    parallel to ``EOPS_ITSM_DB``.
     """
     raw: list[dict] = []
-    if ITSM_TASKS_PATH.exists():
-        raw.extend(load_file(ITSM_TASKS_PATH))
-    if ITSM_TASKS_DIR.is_dir():
-        for fp in sorted(ITSM_TASKS_DIR.glob("*.json")):
+    override = os.environ.get("EOPS_ITSM_TASKS")
+    if override:
+        p = Path(override)
+        sources = sorted(p.glob("*.json")) if p.is_dir() else [p]
+        for fp in sources:
             data = load_file(fp)
             raw.extend(data if isinstance(data, list) else [data])
+    else:
+        if ITSM_TASKS_PATH.exists():
+            raw.extend(load_file(ITSM_TASKS_PATH))
+        if ITSM_TASKS_DIR.is_dir():
+            for fp in sorted(ITSM_TASKS_DIR.glob("*.json")):
+                data = load_file(fp)
+                raw.extend(data if isinstance(data, list) else [data])
 
     tasks = [Task.model_validate(t) for t in raw]
     seen: set[str] = set()

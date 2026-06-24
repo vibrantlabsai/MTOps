@@ -151,6 +151,7 @@ def run_task(
                 db_delta=db_delta,
                 acting_user_id=task.acting_user_id,
                 org_id=task.org_id,
+                org_ids=task.org_ids,
             )
 
         env = env_ctor(db_delta=task.initial_state_delta)
@@ -248,6 +249,19 @@ def run_domain(
     )
 
 
+def dump_trial_result(out_dir: Union[str, Path], r: TaskResult) -> Path:
+    """Write one trial's full TaskResult to ``<out_dir>/<task_id>/trial_<i>.json`` and return it.
+
+    Used both incrementally (per trial, as it completes — so a crashed/interrupted run keeps the
+    trajectories already produced) and by ``save_run_dir`` at the end.
+    """
+    task_dir = Path(out_dir) / r.task_id
+    task_dir.mkdir(parents=True, exist_ok=True)
+    path = task_dir / f"trial_{r.trial}.json"
+    dump_file(path, r.model_dump())
+    return path
+
+
 def save_run_dir(results: RunResults, out_dir: Union[str, Path]) -> Path:
     """Write a structured run directory.
 
@@ -292,9 +306,7 @@ def save_run_dir(results: RunResults, out_dir: Union[str, Path]) -> Path:
     dump_file(out / "summary.json", summary)
 
     for r in results.results:
-        task_dir = out / r.task_id
-        task_dir.mkdir(parents=True, exist_ok=True)
-        dump_file(task_dir / f"trial_{r.trial}.json", r.model_dump())
+        dump_trial_result(out, r)
 
     return out
 

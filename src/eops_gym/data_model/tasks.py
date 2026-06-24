@@ -76,9 +76,12 @@ class Task(BaseModel):
     id: str
     scenario: Scenario
     evaluation_criteria: EvaluationCriteria = Field(default_factory=EvaluationCriteria)
-    # The task's single tenant. When set, the env is sliced to this org (single-tenant) so
-    # numbers/names that collide across orgs resolve unambiguously to the in-org record. The
-    # acting user (persona identity) belongs to this org.
+    # The task's tenancy scope: the set of orgs its data lives in. When set, the env is sliced
+    # (FK-closed) to these orgs so numbers/names that collide *outside* the scope resolve
+    # unambiguously. A 1-elt list is single-tenant; {provider, client} is the MSP cross-org case
+    # (the acting operator may belong to a different org than the records). `org_id` is the legacy
+    # single-org alias (a 1-elt scope); `org_ids` takes precedence when both are set.
+    org_ids: Optional[List[str]] = None
     org_id: Optional[str] = None
     # item 7: collection -> record_id -> {set|create|delete}
     initial_state_delta: Optional[Delta] = None
