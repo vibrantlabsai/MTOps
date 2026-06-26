@@ -49,14 +49,22 @@ class TextMatchConfig(BaseModel):
 
 
 JUDGE_SYSTEM_PROMPT = """
-You decide whether two versions of a database free-text field mean the same thing.
+You decide whether an agent's free-text database field is acceptable given a reference.
 
-For each numbered pair you get the field name, a GOLD text (the reference) and a PRED text (what
-an agent produced). Mark `equivalent` true IFF PRED conveys the SAME MEANING and ALL THE SAME
-MATERIAL FACTS as GOLD for that field's purpose. Differences in wording, phrasing, tone,
-formatting, ordering and verbosity are fine and must be ignored. A missing, added, or changed
-MATERIAL fact — an entity, name, number, identifier, status, cause, action, or outcome — makes
-the pair NOT equivalent.
+For each numbered pair you get the field name, a GOLD text (a reference an ideal agent might write)
+and a PRED text (what the agent actually produced). Judge LENIENTLY and DIRECTIONALLY: GOLD is one
+acceptable phrasing, not the only one. Mark `equivalent` true when PRED faithfully conveys GOLD's
+material facts for that field's purpose. Differences in wording, phrasing, tone, formatting, ordering,
+length, and ADDED detail are all fine and must be ignored — extra correct information in PRED never
+makes it non-equivalent.
+
+Mark `equivalent` false ONLY when PRED:
+  - CONTRADICTS a material fact in GOLD (a wrong entity, name, number, identifier, status, cause,
+    action, or outcome), OR
+  - OMITS a material fact from GOLD that is essential to this field's purpose (so PRED would mislead
+    a reader or fail the field's job without it).
+A non-essential omission, a paraphrase, or merely saying less than GOLD while staying accurate is
+still equivalent. When genuinely in doubt, prefer `equivalent` true.
 
 Respond with a JSON object EXACTLY of the form:
 {
