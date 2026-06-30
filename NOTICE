@@ -1,0 +1,21 @@
+MTOps (Multi-Turn, Multi-Tenant Operations)
+Copyright 2026 Vibrant Labs and the MTOps contributors
+
+This product includes software derived from EnterpriseOps-Gym
+(https://github.com/ServiceNow/EnterpriseOps-Gym), Copyright ServiceNow, Inc.,
+licensed under the Apache License, Version 2.0.
+
+Specifically, the ITSM domain schema, seed databases, and tool surface (action
+space) in this project are a port/derivative of that project's ITSM environment.
+The conversational multi-turn user-simulator and the multi-tenancy (org-scoped /
+MSP) model are original to this project; the verification format (state-based DB
+comparison + natural-language assertions) follows the style of tau-bench (Yao et
+al., arXiv:2406.12045).
+
+EnterpriseOps-Gym citation:
+
+  Shiva Krishna Reddy Malay, Shravan Nayak, Jishnu Sethumadhavan Nair, Sagar
+  Davasam, Aman Tiwari, Sathwik Tejaswi Madhusudhan, Sridhar Krishna Nemala,
+  Srinivas Sunkara, Sai Rajeswar. "EnterpriseOps-Gym: Environments and
+  Evaluations for Stateful Agentic Planning and Tool Use in Enterprise Settings."
+  arXiv:2603.13594, 2026. https://arxiv.org/abs/2603.13594

@@ -1,8 +1,9 @@
-## EnterpriseOps Gym 2
+## MTOps
 
-EnterpriseOps Gym 2 is a benchmark for evaluating LLM agents on stateful, multi-step
-enterprise-operations workflows: an agent talks to a simulated user, operates on an in-memory
-domain database through typed tools, and is scored against gold criteria.
+MTOps (Multi-Turn, Multi-Tenant Operations) is a **conversational** benchmark for evaluating LLM agents on
+stateful enterprise-operations workflows: an agent **converses with a simulated user**, operates on
+an in-memory ITSM database through ~95 typed Python tools, and is scored by **golden-trajectory /
+state verification combined with natural-language assertions**.
 
 Each domain specifies:
 
@@ -10,6 +11,27 @@ Each domain specifies:
 - A set of **tools** the agent can use (in-memory, pydantic-typed)
 - A set of **tasks** with evaluation criteria
 
+
+## What this is
+
+The ITSM environment — the seed databases (the simulated enterprise world: incidents, problems,
+changes, SLAs, knowledge, configuration items, services, users/groups/roles, organizations,
+notifications) and the ~95 typed tools (the action space) — is ported from
+**[EnterpriseOps-Gym](https://github.com/ServiceNow/EnterpriseOps-Gym)** (Apache-2.0), reimplemented
+as in-memory Python tool calls (no Docker / SQL server at runtime).
+
+Original to this repo:
+
+- **Multi-turn conversational tasks** — a persona-driven user simulator the agent must converse with
+  (progressive disclosure of `known_info`, never invents ids); a turn-based agent ↔ user ↔ environment
+  loop, rather than a one-shot instruction.
+- **Verification** — state-based DB comparison (a gold-action replay produces a target DB, compared by
+  record/field) **combined with** natural-language assertions, in the style of
+  [τ-bench](https://arxiv.org/abs/2406.12045); free-text DB fields are graded by a **semantic judge**
+  (not exact match) so reworded-but-correct prose passes. Reward is the product of the checks a task
+  defines.
+- **Multi-tenancy** — org-scoped tasks (`org_ids`) with FK-closed DB slicing for **single-tenant** and
+  **provider/client (MSP)** cross-org scenarios.
 
 ## Architecture
 
@@ -29,7 +51,7 @@ flowchart TD
         USER <-->|messages| AGENT
     end
 
-    AGENT -->|tool calls| ENV["Environment<br/>ToolKit · 93 typed tools<br/>in-memory ItsmDB"]
+    AGENT -->|tool calls| ENV["Environment<br/>ToolKit · 95 typed tools<br/>in-memory ItsmDB"]
     ENV -->|tool results| AGENT
     AGENT -.->|litellm| PROV(("LLM provider"))
     USER -.->|litellm| PROV
@@ -155,11 +177,35 @@ tasks). Duplicate ids across the sources are rejected. Each task specifies:
 
 ## Evaluation
 
-The reward is the product of the two criteria a task defines; all defined checks gate.
+The reward is the product of the two criteria a task defines; all defined checks gate — a state-based
+DB check and a natural-language layer (conversation-level assertions + semantic judging of free-text
+DB fields).
 
 - **DB-match** (`evaluator/evaluator_env.py`): replays the task's gold `actions` on a fresh
   seed+delta env and compares its DB hash to the run's final DB. Tools generate IDs/timestamps
-  deterministically so gold replay is reproducible.
+  deterministically so gold replay is reproducible. Structured fields must match exactly; free-text
+  DB fields are compared by a semantic judge (`evaluator/text_match_strategy.py`) so reworded-but-
+  equivalent prose still passes.
 - **NL assertions** (`evaluator/evaluator_nl.py`): an LLM judge grades each assertion against the
   conversation.
+
+## Citation
+
+If you use this work, please cite:
+
+```bibtex
+@misc{malay2026enterpriseopsgymenvironmentsevaluationsstateful,
+      title={EnterpriseOps-Gym: Environments and Evaluations for Stateful Agentic Planning and Tool Use in Enterprise Settings},
+      author={Shiva Krishna Reddy Malay and Shravan Nayak and Jishnu Sethumadhavan Nair and Sagar Davasam and Aman Tiwari and Sathwik Tejaswi Madhusudhan and Sridhar Krishna Nemala and Srinivas Sunkara and Sai Rajeswar},
+      year={2026},
+      eprint={2603.13594},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2603.13594},
+}
+```
+
+## License
+
+Licensed under **Apache-2.0**; see [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).
 

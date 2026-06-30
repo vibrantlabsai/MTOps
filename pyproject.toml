@@ -1,7 +1,7 @@
 [project]
 name = "eops-gym"
 version = "0.1.0"
-description = "EnterpriseOps Gym 2 — a benchmark for enterprise operations agents"
+description = "MTOps — a multi-turn, multi-tenant benchmark for enterprise operations agents"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
