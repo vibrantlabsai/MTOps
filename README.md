@@ -189,9 +189,36 @@ DB fields).
 - **NL assertions** (`evaluator/evaluator_nl.py`): an LLM judge grades each assertion against the
   conversation.
 
+## Acknowledgements
+
+MTOps is built on the ITSM environment from:
+
+> **EnterpriseOps-Gym: Environments and Evaluations for Stateful Agentic Planning and Tool Use in Enterprise Settings**
+> Shiva Krishna Reddy Malay et al. (ServiceNow) — https://github.com/ServiceNow/EnterpriseOps-Gym · [arXiv:2603.13594](https://arxiv.org/abs/2603.13594)
+
+The ITSM domain schema, the seed databases (the simulated enterprise world), and the typed
+tool surface (the action space) originate from the EnterpriseOps-Gym project, licensed under
+Apache-2.0. MTOps reimplements that environment as in-memory Python tool calls (no Docker / SQL
+server at runtime) and adds, original to this work: a **multi-turn conversational user-simulator
+loop**, an **org-scoped multi-tenant (single-tenant + provider/client MSP) task model**, and a
+**verifier that combines state-based DB comparison with natural-language assertions** in the style
+of [τ-bench](https://arxiv.org/abs/2406.12045) (Yao et al.).
+
 ## Citation
 
-If you use this work, please cite:
+If you use MTOps, please cite this repository:
+
+```bibtex
+@misc{mtops2026,
+      title={{MTOps: Multi-Turn, Multi-Tenant Operations — A Conversational Benchmark for Enterprise-Operations Agents}},
+      author={Shahul Elavakkattil and Ankit Sridhar and Andrew Bastin and Jithin James and Kumar Anirudha and Arjun},
+      year={2026},
+      publisher={Vibrant Labs},
+      url={https://github.com/vibrantlabsai/MTOps},
+}
+```
+
+This work builds on EnterpriseOps-Gym; please also cite the original:
 
 ```bibtex
 @misc{malay2026enterpriseopsgymenvironmentsevaluationsstateful,
