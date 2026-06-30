@@ -211,7 +211,7 @@ If you use MTOps, please cite this repository:
 ```bibtex
 @misc{mtops2026,
       title={{MTOps: Multi-Turn, Multi-Tenant Operations — A Conversational Benchmark for Enterprise-Operations Agents}},
-      author={Shahul Elavakkattil and Ankit Sridhar and Andrew Bastin and Jithin James and Kumar Anirudha and Arjun},
+      author={Shahul Elavakkattil and Ankit Sridhar and Andrew Bastin and Jithin James and Kumar Anirudha and Arjun Devarajan},
       year={2026},
       publisher={Vibrant Labs},
       url={https://github.com/vibrantlabsai/MTOps},
